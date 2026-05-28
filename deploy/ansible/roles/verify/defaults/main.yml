@@ -1,0 +1,9 @@
+---
+cube_base_url: "http://localhost:8000"
+cube_api_url: "http://localhost:8000/api/v1/"
+cube_user: "chris"
+cube_password: "chris1234"
+verify_pacs_identifier: "ChRIS"
+verify_expect_dicomweb: false
+dicomweb_url_prefix: "/dicom-web"
+test_orthanc_base_url: "http://localhost:8142"

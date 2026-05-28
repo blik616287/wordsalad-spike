@@ -1,0 +1,10 @@
+---
+- name: restart cube services
+  # Restart the API and the Celery worker so Django re-imports the overlaid
+  # urls.py / models.py / tasks.py. db_migrate is one-shot and not restarted.
+  ansible.builtin.command:
+    cmd: >-
+      docker compose restart {{ cube_service_name }} {{ cube_worker_service_name }}
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"

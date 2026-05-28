@@ -1,0 +1,34 @@
+---
+# Smoke-test the deployment. Delegates to scripts/smoke.sh so the same checks
+# can be run by hand outside Ansible. Passes config via env so there is one
+# source of truth (group_vars).
+
+- name: Locate the smoke script
+  ansible.builtin.set_fact:
+    verify_smoke_script: "{{ playbook_dir }}/scripts/smoke.sh"
+
+- name: Ensure smoke script is executable
+  ansible.builtin.file:
+    path: "{{ verify_smoke_script }}"
+    mode: "0755"
+
+- name: Run smoke tests
+  ansible.builtin.command:
+    cmd: "{{ verify_smoke_script }}"
+  environment:
+    CUBE_BASE_URL: "{{ cube_base_url }}"
+    CUBE_API_URL: "{{ cube_api_url }}"
+    CUBE_USER: "{{ cube_user }}"
+    CUBE_PASSWORD: "{{ cube_password }}"
+    PACS_ID: "{{ verify_pacs_identifier }}"
+    DICOMWEB_PREFIX: "{{ dicomweb_url_prefix }}"
+    EXPECT_DICOMWEB: "{{ verify_expect_dicomweb | string | lower }}"
+    ORTHANC_BASE_URL: "{{ test_orthanc_base_url }}"
+  register: verify_run
+  changed_when: false
+  # smoke.sh exits non-zero only on a hard FAIL (not on SKIP).
+  failed_when: verify_run.rc != 0
+
+- name: Smoke-test output
+  ansible.builtin.debug:
+    var: verify_run.stdout_lines

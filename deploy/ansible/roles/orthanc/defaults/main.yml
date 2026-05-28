@@ -1,0 +1,15 @@
+---
+test_orthanc_enabled: true
+test_orthanc_image: "docker.io/orthancteam/orthanc:24.10.3"
+test_orthanc_container_name: "dicomweb-spike-orthanc"
+test_orthanc_http_port: 8142
+test_orthanc_dicom_port: 4342
+test_orthanc_aet: "SPIKEORTHANC"
+test_orthanc_user: "orthanc"
+test_orthanc_password: "orthanc"
+test_orthanc_base_url: "http://localhost:8142"
+minichris_local_network: "minichris-local"
+oxidicom_aet: "ChRIS"
+oxidicom_internal_host: "oxidicom"
+oxidicom_internal_port: 11111
+orthanc_config_dir: "{{ deploy_workdir }}/orthanc-config"

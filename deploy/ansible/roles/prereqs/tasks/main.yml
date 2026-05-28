@@ -1,0 +1,67 @@
+---
+# Assert the host can actually run the stack before we touch anything.
+
+- name: Check that the docker CLI is on PATH
+  ansible.builtin.command: docker --version
+  register: prereqs_docker_version
+  changed_when: false
+  failed_when: prereqs_docker_version.rc != 0
+
+- name: Show docker version
+  ansible.builtin.debug:
+    msg: "{{ prereqs_docker_version.stdout }}"
+
+- name: Check that the Docker daemon is reachable
+  # `docker info` only succeeds if the daemon is up AND the current user can
+  # talk to it (docker group / root). A failure here is the #1 setup gotcha.
+  ansible.builtin.command: docker info --format '{{ "{{" }}.ServerVersion{{ "}}" }}'
+  register: prereqs_docker_info
+  changed_when: false
+  failed_when: prereqs_docker_info.rc != 0
+
+- name: Check Docker Compose v2 plugin is available
+  ansible.builtin.command: docker compose version --short
+  register: prereqs_compose_version
+  changed_when: false
+  failed_when: prereqs_compose_version.rc != 0
+
+- name: Assert Compose meets the minimum upstream version (>= 2.6.0)
+  ansible.builtin.assert:
+    that:
+      - prereqs_compose_version.stdout | regex_replace('^v', '')
+        is version(prereqs_min_compose_version, '>=', version_type='loose')
+    fail_msg: >-
+      Docker Compose {{ prereqs_compose_version.stdout }} is older than the
+      required {{ prereqs_min_compose_version }}. miniChRIS-docker needs
+      Compose v2.6+. Upgrade the docker-compose-plugin.
+    success_msg: "Docker Compose {{ prereqs_compose_version.stdout }} OK"
+
+- name: Assert the community.docker Ansible collection is installed
+  # community.docker provides docker_container / docker_network used later.
+  ansible.builtin.command: >-
+    ansible-galaxy collection list {{ prereqs_required_collection }}
+  register: prereqs_collection
+  changed_when: false
+  failed_when: >-
+    prereqs_collection.rc != 0 or
+    prereqs_required_collection not in prereqs_collection.stdout
+
+- name: Assert the Docker SDK for Python is importable (needed by docker_* modules)
+  # community.docker's modules import the `docker` python package in the
+  # interpreter Ansible uses. If this fails, install it:
+  #   pip install 'docker>=6'
+  ansible.builtin.command: >-
+    {{ ansible_python_interpreter | default(ansible_playbook_python) }}
+    -c "import docker; print(docker.__version__)"
+  register: prereqs_docker_sdk
+  changed_when: false
+  failed_when: prereqs_docker_sdk.rc != 0
+
+- name: Prereqs summary
+  ansible.builtin.debug:
+    msg:
+      - "docker            : {{ prereqs_docker_version.stdout }}"
+      - "daemon ServerVer  : {{ prereqs_docker_info.stdout }}"
+      - "compose           : {{ prereqs_compose_version.stdout }}"
+      - "docker python SDK : {{ prereqs_docker_sdk.stdout }}"
+      - "{{ prereqs_required_collection }} : installed"
