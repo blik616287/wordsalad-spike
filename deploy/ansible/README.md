@@ -162,20 +162,26 @@ where L2 code is overlaid into the **running** container so it can be exercised
 without rebuilding the image:
 
 1. `docker cp ../../implementation/dicomweb-l2/.` into the CUBE app dir
-   (`/home/localuser/chris_backend/dicomweb/`) of both the `chris` and `worker`
-   containers (the worker runs the Phase-A Celery indexer).
-2. `docker compose exec chris python manage.py migrate --noinput` — creates the
-   `PACSStudy` model, enables `pg_trgm`, applies the `dicomweb` app migrations.
-3. Restart `chris` + `worker` (a handler) so Django re-imports `urls.py` /
-   `models.py` / `tasks.py`, then re-wait for CUBE health.
+   (`/opt/app-root/src/dicomweb/`) of both the `chris` and `worker` containers
+   (the worker runs the Phase-A Celery indexer).
+2. **Install `pydicom`** into both containers — the prebuilt image predates
+   Phase A's requirement, and the STOW handler + indexer import it.
+3. **Wire the app in** (`files/overlay_patch.py`, run **as root** since the
+   image's project files aren't app-user-writable): idempotently append
+   `'dicomweb'` to `INSTALLED_APPS` and mount its urls under
+   `/dicom-web/pacs/<id>/`. Without this the app is dead code.
+4. `docker compose exec chris python manage.py migrate --noinput` — creates the
+   `PACSStudy` model and applies the `dicomweb` migrations.
+5. Restart `chris` + `worker` (a handler) so Django re-imports `settings` /
+   `urls` / `models` / `tasks`, then re-wait for CUBE health.
 
 This is a **dev overlay**, not a production deploy. Production would rebuild the
-CUBE image with the `dicomweb` app baked in (or ship it as an installable
-dependency). The role is **disabled by default** (`dicomweb_overlay_enabled:
-false` in `group_vars/all.yml`) because `implementation/dicomweb-l2/` is Phase
-B/C work that does not exist yet — when disabled, the role prints exactly what
-it *would* do (so it is meeting-demonstrable), and the smoke test reports the
-DICOMweb checks as `SKIP`. Flip the toggle once the L2 code is in place:
+CUBE image with the `dicomweb` app (and `pydicom`) baked in. The role is
+**disabled by default** (`dicomweb_overlay_enabled: false` in
+`group_vars/all.yml`) — when disabled it prints what it *would* do (so it is
+meeting-demonstrable) and the play continues to the smoke test, which reports the
+DICOMweb checks as `SKIP` (it uses a `when:` guard, **not** `meta: end_play`, so
+`verify` always runs). Flip the toggle to apply the overlay:
 
 ```bash
 ansible-playbook -i inventory.ini site.yml \
@@ -263,10 +269,14 @@ deploy/
 These are honest limits of a spec written ahead of an actual run on the target
 host; verify them live before the demo.
 
-1. **Not executed in this environment.** These files were authored from the
-   upstream `docker-compose.yml`/scripts and the spike knowledge base; the full
-   `ansible-playbook` run has **not** been executed here. Expect to iterate on
-   small details (image-tag availability, the exact sample dataset) on first run.
+1. **Validated on a live host (2026-05-28).** The full `prereqs → minichris →
+   orthanc → sample_data → verify` flow has been run: CUBE comes up healthy, the
+   test Orthanc loads, and an Orthanc → oxidicom C-STORE **ingests end-to-end**
+   (a `PACSSeries` is created). The overlay (`dicomweb_app`, off by default) was
+   validated against the real `cube:6.11.0` image: the patcher wires the app
+   idempotently and, with `pydicom` installed, all L2 modules import cleanly. The
+   one piece not yet exercised on a live stack is the overlay-enabled HTTP path
+   (QIDO/WADO/STOW responses) — run with `-e dicomweb_overlay_enabled=true`.
 
 2. **`orthancteam/orthanc` image tag.** Pinned to `24.10.3` in
    `group_vars/all.yml`. The orthancteam image bundles the DicomWeb + REST
@@ -274,10 +284,10 @@ host; verify them live before the demo.
    unavailable, bump `test_orthanc_image`. (Docs:
    <https://orthanc.uclouvain.be/book/plugins/dicomweb.html>.)
 
-3. **CUBE container app path.** The overlay assumes the Django project lives at
-   `/home/localuser/chris_backend` inside `cube:6.11.0`. Confirm with
-   `docker compose exec chris sh -c 'pwd; ls'` and adjust
-   `dicomweb_container_app_dir` if the image layout differs.
+3. **CUBE container app path.** The Django project lives at `/opt/app-root/src`
+   inside `cube:6.11.0` (verified against the image; `dicomweb_container_app_dir`
+   is set accordingly). Confirm with `docker compose exec chris sh -c 'pwd; ls'`
+   if you bump the cube image and the layout differs.
 
 4. **The test Orthanc joining `minichris-local`.** It attaches to the
    `minichris-local` network so it can resolve `oxidicom` by name for the
@@ -293,9 +303,10 @@ host; verify them live before the demo.
 
 6. **L2 endpoints are SKIP until the overlay is enabled.** With
    `dicomweb_overlay_enabled: false` (default), the QIDO/WADO/STOW smoke checks
-   report `SKIP`, not `PASS` — the endpoints genuinely don't exist yet. This is
-   expected: the L2 view layer (Phase C) is the work being scoped, not work this
-   deployment ships.
+   report `SKIP`, not `PASS` — the endpoints aren't mounted. Set
+   `-e dicomweb_overlay_enabled=true` to copy the L2 app in, install `pydicom`,
+   wire it into `INSTALLED_APPS` + urls (as root), migrate, and restart; the
+   endpoints then mount under `/dicom-web/pacs/<id>/`.
 
 7. **oxidicom `OXIDICOM_DEV_SLEEP=150ms`** is a demo throttle baked into the
    wrapped stack — ingest is intentionally slow so progress is visible in
