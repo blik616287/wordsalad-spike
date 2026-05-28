@@ -1,11 +1,18 @@
 ---
-# Clone/pull FNNDSC/miniChRIS-docker and bring the stack up.
+# Bring up the vendored FNNDSC/miniChRIS-docker stack.
+#
+# miniChRIS-docker is vendored as a git SUBMODULE at deploy/vendor/miniChRIS-docker
+# (pinned to a known-good commit) rather than cloned at runtime, so the wrapped
+# stack version is reproducible, version-controlled, and available offline.
+# Initialize it once with:  git submodule update --init deploy/vendor/miniChRIS-docker
 #
 # We deliberately drive `docker compose` via the shell module rather than
 # community.docker.docker_compose_v2 for the *up* step, because the canonical
 # bootstrap is the repo's own `minichris.sh` (it sets HOSTNAME in .env and runs
 # the one-shot `chrisomatic` registrar afterwards). Re-implementing that in the
 # Ansible module would diverge from upstream. We DO use the module elsewhere.
+# minichris.sh writes only files its own .gitignore covers, so running in place
+# leaves the submodule working tree clean.
 #   minichris.sh / docker-compose.yml: https://github.com/FNNDSC/miniChRIS-docker
 
 - name: Ensure the deploy workdir exists
@@ -14,20 +21,22 @@
     state: directory
     mode: "0755"
 
-- name: Clone or update miniChRIS-docker
-  ansible.builtin.git:
-    repo: "{{ minichris_repo_url }}"
-    dest: "{{ minichris_dir }}"
-    version: "{{ minichris_repo_version }}"
-    update: true
-    force: false
-  register: minichris_checkout
+- name: Assert the vendored miniChRIS-docker submodule is checked out
+  ansible.builtin.stat:
+    path: "{{ minichris_dir }}/docker-compose.yml"
+  register: minichris_compose_file
 
-- name: Report checkout
-  ansible.builtin.debug:
+- name: Fail with init instructions if the submodule is missing
+  ansible.builtin.fail:
     msg: >-
-      miniChRIS-docker at {{ minichris_dir }}
-      (ref={{ minichris_repo_version }}, changed={{ minichris_checkout.changed }})
+      miniChRIS-docker submodule not found at {{ minichris_dir }}.
+      Run once from the repo root:
+      git submodule update --init deploy/vendor/miniChRIS-docker
+  when: not minichris_compose_file.stat.exists
+
+- name: Report vendored stack
+  ansible.builtin.debug:
+    msg: "Using vendored (pinned) miniChRIS-docker submodule at {{ minichris_dir }}"
 
 # --- Bring the stack up -----------------------------------------------------
 # minichris.sh brings up the DEFAULT profile then runs chrisomatic. The PACS

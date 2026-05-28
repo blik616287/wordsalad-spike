@@ -13,7 +13,10 @@
 set -uo pipefail
 
 WORKDIR="${DEPLOY_WORKDIR:-${HOME}/.cache/dicomweb-spike}"
-MINICHRIS_DIR="${WORKDIR}/miniChRIS-docker"
+# miniChRIS-docker is the vendored submodule (deploy/vendor/miniChRIS-docker),
+# i.e. ../../vendor/miniChRIS-docker relative to this script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+MINICHRIS_DIR="${MINICHRIS_DIR:-${SCRIPT_DIR}/../../vendor/miniChRIS-docker}"
 ORTHANC_NAME="${TEST_ORTHANC_CONTAINER_NAME:-dicomweb-spike-orthanc}"
 PROJECT="${MINICHRIS_COMPOSE_PROJECT:-minichris}"
 
