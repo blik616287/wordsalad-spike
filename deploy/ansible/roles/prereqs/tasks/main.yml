@@ -51,7 +51,7 @@
   # interpreter Ansible uses. If this fails, install it:
   #   pip install 'docker>=6'
   ansible.builtin.command: >-
-    {{ ansible_python_interpreter | default(ansible_playbook_python) }}
+    {{ ansible_facts.get('discovered_interpreter_python', ansible_playbook_python) }}
     -c "import docker; print(docker.__version__)"
   register: prereqs_docker_sdk
   changed_when: false
