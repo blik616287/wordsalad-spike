@@ -1,0 +1,38 @@
+---
+# =============================================================================
+# site.yml -- one-command deployment of the DICOMweb-on-CUBE spike.
+#
+#   ansible-playbook -i inventory.ini site.yml
+#
+# Orchestrates, in order:
+#   1. prereqs       -- assert Docker + Compose v2 + community.docker are present
+#   2. minichris     -- clone/pull FNNDSC/miniChRIS-docker, bring it up (pacs
+#                       profile), wait for CUBE to be healthy
+#   3. orthanc       -- run a separate orthancteam/orthanc test PACS with the
+#                       DICOMweb + REST plugins, on non-colliding ports
+#   4. sample_data   -- load sample DICOM into the test Orthanc, then C-STORE
+#                       push it to oxidicom (AET ChRIS) so CUBE ingests it
+#   5. dicomweb_app  -- overlay the L2 QIDO/WADO/STOW code into the running CUBE
+#                       container (the integration seam); migrate + restart
+#   6. verify        -- curl QIDO/WADO/STOW + core endpoints, report pass/fail
+#
+# Tag any phase to run it alone, e.g.:
+#   ansible-playbook -i inventory.ini site.yml --tags verify
+# =============================================================================
+
+- name: Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)
+  hosts: deploy_host
+  gather_facts: true
+  roles:
+    - role: prereqs
+      tags: [prereqs]
+    - role: minichris
+      tags: [minichris, stack]
+    - role: orthanc
+      tags: [orthanc, pacs]
+    - role: sample_data
+      tags: [sample_data, data]
+    - role: dicomweb_app
+      tags: [dicomweb_app, overlay]
+    - role: verify
+      tags: [verify, smoke]

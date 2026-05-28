@@ -1,0 +1,13 @@
+---
+# All effective values come from group_vars/all.yml; these are role-local
+# fallbacks so the role is runnable in isolation.
+minichris_repo_url: "https://github.com/FNNDSC/miniChRIS-docker.git"
+minichris_repo_version: "master"
+minichris_dir: "{{ ansible_env.HOME }}/.cache/dicomweb-spike/miniChRIS-docker"
+minichris_profiles: ["pacs"]
+cube_api_url: "http://localhost:8000/api/v1/"
+cube_user: "chris"
+cube_password: "chris1234"
+cube_health_retries: 60
+cube_health_delay: 5
+cube_service_name: "chris"

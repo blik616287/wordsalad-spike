@@ -1,0 +1,131 @@
+---
+# =============================================================================
+# dicomweb_app -- THE INTEGRATION SEAM.
+#
+# CUBE runs as the prebuilt container `ghcr.io/fnndsc/cube:6.11.0`. Our L2
+# DICOMweb code (QIDO/WADO/STOW endpoints + the PACSStudy model + pg_trgm
+# migration) is NOT in that image. To exercise it against the running stack
+# without rebuilding the image, we OVERLAY the code into the live containers:
+#
+#   1. copy implementation/dicomweb-l2/ -> the CUBE app dir inside the
+#      `chris` AND `worker` containers (worker runs the Celery indexer)
+#   2. run `manage.py migrate` (creates PACSStudy, enables pg_trgm, etc.)
+#   3. restart the `chris` + `worker` services so Django re-imports urls/models
+#
+# This is a DEV overlay, not a production deploy. Production would rebuild the
+# CUBE image with the dicomweb app baked in, or ship it as an installable
+# Django app dependency. We make the seam explicit and idempotent so the
+# meeting can see exactly where L2 code lands.
+#
+# Until implementation/dicomweb-l2/ exists, this role is a no-op that prints
+# what it WOULD do (dicomweb_overlay_enabled defaults to false).
+# =============================================================================
+
+- name: Report integration seam status
+  ansible.builtin.debug:
+    msg: >-
+      dicomweb_overlay_enabled={{ dicomweb_overlay_enabled }}.
+      {{ 'Overlaying L2 code into running CUBE container.'
+         if dicomweb_overlay_enabled
+         else 'Overlay DISABLED -- skipping. Set dicomweb_overlay_enabled=true once '
+              ~ dicomweb_l2_src ~ ' exists (Phase B/C code).' }}
+
+- name: Describe the seam (always shown, for the stakeholder walk-through)
+  ansible.builtin.debug:
+    msg:
+      - "INTEGRATION SEAM (roles/dicomweb_app):"
+      - "  source on host : {{ dicomweb_l2_src }}"
+      - "  target in image: {{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}/"
+      - "  services touched: {{ cube_service_name }} (API), {{ cube_worker_service_name }} (Celery indexer)"
+      - "  steps: copy code -> manage.py migrate -> restart chris+worker"
+      - "  endpoints exposed: {{ dicomweb_url_prefix }}/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)"
+      - "  NOTE: dev overlay only. Production rebuilds the cube image."
+
+- name: Stop here if the overlay is disabled
+  ansible.builtin.meta: end_play
+  when: not dicomweb_overlay_enabled
+
+# --- From here on, the overlay is enabled -----------------------------------
+
+- name: Assert the L2 source tree exists on the host
+  ansible.builtin.stat:
+    path: "{{ dicomweb_l2_src }}"
+  register: l2_src_stat
+
+- name: Fail clearly if L2 source is missing
+  ansible.builtin.fail:
+    msg: >-
+      dicomweb_overlay_enabled=true but {{ dicomweb_l2_src }} does not exist.
+      Place the L2 DICOMweb Django app there (models.py, views.py, urls.py,
+      serializers/renderers, migrations/) before enabling the overlay.
+  when: not l2_src_stat.stat.exists
+
+- name: Resolve the running CUBE container id
+  ansible.builtin.command:
+    cmd: docker compose ps -q {{ cube_service_name }}
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: cube_cid
+  changed_when: false
+  failed_when: cube_cid.stdout | trim | length == 0
+
+- name: Resolve the running worker container id
+  ansible.builtin.command:
+    cmd: docker compose ps -q {{ cube_worker_service_name }}
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: worker_cid
+  changed_when: false
+  failed_when: worker_cid.stdout | trim | length == 0
+
+# Copy the app into BOTH containers. `docker cp` of a directory lands it as a
+# subdir under the destination. We copy to <app_dir>/<app_name>.
+- name: Copy L2 app into the CUBE (chris) container
+  ansible.builtin.command:
+    cmd: >-
+      docker cp {{ dicomweb_l2_src }}/.
+      {{ cube_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}
+  changed_when: true
+
+- name: Copy L2 app into the worker container
+  ansible.builtin.command:
+    cmd: >-
+      docker cp {{ dicomweb_l2_src }}/.
+      {{ worker_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}
+  changed_when: true
+
+- name: Run Django migrations inside the CUBE container
+  # Creates PACSStudy, enables pg_trgm, applies the dicomweb app migrations.
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T {{ cube_service_name }}
+      python manage.py migrate --noinput
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: dicomweb_migrate
+  changed_when: "'No migrations to apply' not in dicomweb_migrate.stdout"
+  notify:
+    - restart cube services
+
+- name: Show migrate output
+  ansible.builtin.debug:
+    var: dicomweb_migrate.stdout_lines
+
+- name: Flush handlers now (restart chris + worker so code is re-imported)
+  ansible.builtin.meta: flush_handlers
+
+- name: Re-wait for CUBE health after restart
+  ansible.builtin.uri:
+    url: "{{ cube_api_url }}"
+    method: GET
+    user: "{{ cube_user }}"
+    password: "{{ cube_password }}"
+    force_basic_auth: true
+    status_code: [200]
+  register: cube_health_post
+  retries: 30
+  delay: 5
+  until: cube_health_post.status == 200

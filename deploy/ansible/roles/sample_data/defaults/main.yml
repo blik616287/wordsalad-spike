@@ -1,0 +1,9 @@
+---
+sample_data_mode: "download"          # download | local_dir | none
+sample_data_url: "https://github.com/datalad/example-dicom-structural/archive/refs/heads/master.zip"
+sample_data_local_dir: ""
+sample_data_workdir: "{{ deploy_workdir }}/sample-data"
+sample_data_push_to_cube: true
+test_orthanc_base_url: "http://localhost:8142"
+test_orthanc_user: "orthanc"
+test_orthanc_password: "orthanc"
