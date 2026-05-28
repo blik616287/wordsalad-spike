@@ -1,0 +1,3 @@
+https://dicom.nema.org/medical/dicom/current/output/html/part18.html#sect_10.6
+https://dcm4chee-arc-cs.readthedocs.io/en/latest/networking/specs/qido-rs/qido-rs.html
+https://massopen.cloud/

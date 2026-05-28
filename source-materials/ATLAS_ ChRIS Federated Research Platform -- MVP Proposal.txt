@@ -1,0 +1,118 @@
+﻿ChRIS Federated Research Platform -- MVP Proposal
+What We're Trying to Prove
+That an arbitrary research process can be applied to a dataset without the researcher needing direct access to the raw data. The researcher interacts only with metadata -- enough to understand what data is available and confirm it suits their needs. The data stays where it lives. Only results come back. The MVP demonstrates this end-to-end on a single node -- federation across institutions is the Phase 2 story.
+________________
+
+
+What's Blocking the MVP Today
+ChRIS (CUBE) currently ingests DICOM data and indexes it internally, but cannot be queried using any standard interface. Its metadata is trapped behind a bespoke, non-interoperable API. This means:
+* No standard visualization tool (OHIF, 3D Slicer) can browse what's inside it
+* No external catalog can discover what data it holds
+* Every integration requires custom code against a one-off API
+This is the single critical gap. Everything else -- the inference algorithm, the compute pipeline -- is either already built or straightforward once this is solved.
+________________
+
+
+Preconditions for MVP
+These two workstreams are prerequisites to standing up the MVP. They can run in parallel.
+Precondition 1: DICOMweb Compliance in CUBE (~1--2 months, 1 engineer)
+What: Implement a DICOMweb search service natively in CUBE:
+* Implement QIDO-RS -- metadata search at Patient/Study/Series/Instance levels. This is the data catalog for DICOM purposes (DICOM “Query based on ID for DICOM Objects”)
+How: CUBE already extracts some DICOM metadata on ingest and stores it internally. The work is:
+1. Extend the schema to capture a well-defined tag set at all four DICOM hierarchy levels
+2. Expose QIDO-RS endpoints in Django querying that schema
+3. Expose WADO-RS endpoints proxying retrieval from storage
+Why not an external catalog: QIDO-RS is a data catalog for DICOM -- a standardized metadata search API. Building it natively into CUBE means no data duplication, no Orthanc mirror, and any standard client tool works immediately. The existing Orthanc workaround (which duplicates data and degrades under cloud storage load) goes away entirely. 
+In addition, adapting Orthanc to be cloud-shard storage friendly represents a different and possibly new coding surface. It might be more straightforward to adapt CUBE’s storage innards rather than Orthanc’s.
+Output: A CUBE instance that any DICOMweb-compliant tool can query. OHIF can browse it. The “catalog” and standards compliance problems are solved in one move.
+________________
+
+
+Precondition 2: Dataset Preparation (parallel with Precondition 1, bounded effort)
+What: Convert Boston Children's Hospital's (BCH) existing public dataset into valid DICOM format.
+Why this dataset: BCH already has a working inference application that runs on this data. Using it eliminates the need to source new data, validate a new algorithm, or wire up an unfamiliar plugin. The demo scenario writes itself.
+How: Insight Softmax Consulting (ISC) has tooling for DICOM conversion and familiarity with edge cases in the tag structure. BCH to share dataset links with ISC; the two teams to review offline and confirm any format edge cases are handled. This is bounded, known work -- not a research problem.
+Output: A well-formed DICOM dataset, ready to be ingested into CUBE, with all required tags populated correctly.
+________________
+
+
+MVP: End-to-End Demo (~1--2 months, after Preconditions complete)
+What: A single demonstrable end-to-end flow on one ChRIS instance.
+The flow:
+Public dataset (DICOM-converted in Precondition 2)
+    ↓
+Single ChRIS instance on MOC
+    ↓
+QIDO-RS metadata index exposed
+    (modality, body part, series count, anonymized tags visible)
+    (raw pixel data never exposed)
+    ↓
+Existing BCH inference plugin dispatched programmatically
+    (no live researcher interaction required -- this is a known
+    algorithm on a known dataset, run as an automated process)
+    ↓
+Results returned and visible centrally
+Key simplification: we are not demoing a live researcher browsing an unknown dataset and making real-time decisions. We are demoing a known algorithm running on a known dataset via the platform's standard interfaces, with the metadata layer demonstrating that a researcher can understand and reason about what data is available without needing direct access to the raw data. This cuts integration complexity significantly while still proving the core proposition.
+Output: Working end-to-end demo on a single institution node. Inference runs on data inside CUBE. Results come back. Metadata is browsable via standard tools. The interaction model is proven.
+________________
+
+
+What the MVP Is Not
+* Multi-site or multi-institution (one ChRIS instance only)
+* Federated learning or distributed model training (Phase 2)
+* A live researcher UX with interactive cohort selection (Phase 2)
+* General catalog for non-DICOM data types (post-MVP)
+* Production de-identification pipeline (out of scope; public data used throughout)
+* Gradient Health integration (Phase 2, most likely) -- the MVP is a standalone ChRIS capability that sets up the conditions for GH integration. There is a chance that early conversations with GH reveal indexing tooling that is open-source and reusable, which could be pulled into Phase 1, but we are not designing around that possibility.
+* OHIF viewer integration (not a deliverable, but may emerge for free once DICOMweb compliance is in place -- no extra engineering required)
+________________
+
+
+Open Items for May 1, 2026
+1. Dataset confirmation: BCH to share public dataset links with ISC; everyone to agree that this is a viable path forward
+   1. The group settled on BCH's existing public lab data as the preferred path. The re-DICOMization work required is treated as bounded and known -- and is itself a capability the broader project will need anyway (whole slide imaging will require the same conversion path). The GH/Owen T1 data option was set aside due to unknown compatibility with BCH's existing inference plugins and the additional test burden it would introduce. Update item 1 to reflect a decision, not an open question.
+2. MOC instance: Is there a ChRIS instance already running on MOC, or does one need to be stood up? Lead time?
+3. Resourcing: Is the ~1 FTE from BCH's allocation available to begin Precondition 1 before formal kickoff?
+4. Scope framing: Does the grant team consider DICOMweb compliance in CUBE to be in-scope grant work, or does it need to be positioned as foundational infrastructure investment? This affects how the effort gets described in tomorrow's conversation.
+   1. There was strong consensus that DICOMweb compliance in CUBE is foundational to the entire ATLAS project, not optional pre-work. It can be stated as in-scope grant work without hedging.
+________________
+
+
+Summary
+
+
+	Precondition 1
+	Precondition 2
+	MVP
+	What
+	DICOMweb in CUBE
+	Convert dataset to DICOM
+	Inference demo, single ChRIS
+	Duration
+	~1--2 months
+	Bounded, parallel
+	~1--2 months
+	Who
+	ISC + BCH engineering
+	Same team
+	Same team
+	Output
+	Queryable, standards-compliant ChRIS
+	Clean DICOM dataset
+	Known algorithm runs on known data, results returned
+	Unlocks
+	Everything else
+	MVP demo
+	Phase 2 federation pitch
+	
+
+
+
+(Potential) Phase 2: Integration with Gradient Health & Federated Architecture
+The MVP is explicitly scoped to not include Gradient Health (GH) -- not because GH is out of scope for the project, but because establishing ChRIS as a standards-compliant, independently functional platform first is what makes the GH integration tractable and clean. Phase 1 (MVP) is the on-ramp; Phase 2 is where the full collaboration begins.
+The key architectural insight from the May 1 meeting: if ChRIS speaks DICOMweb, GH's platform can index and interact with it using existing tooling, without requiring custom integration on either side. Standards compliance in Phase 1 is what unlocks Phase 2 -- it means the handoff to GH doesn't require renegotiating how data is represented or exchanged.
+Three open questions define the Phase 2 workstream, to be explored jointly with GH:
+Indexing alignment GH has a working metadata indexing system backed by parquet files, queryable via SQL, with a researcher-facing UI already in use by major AI labs. Their platform speaks DICOMweb to pull from external sources when building these indexes. The Phase 2 question is how ChRIS's DICOMweb-compliant metadata layer plugs into GH's indexing -- and whether GH's existing parquet-based approach can serve as the central index for a federated system of ChRIS nodes. If every ChRIS instance exposes QIDO-RS, GH may be able to index it with little or no custom work. Any components brought into ChRIS from GH must be open-sourced and embeddable independently of GH's platform.
+Search & exploration UX GH has already built the researcher-facing search and cohort-building experience. Rather than reproducing it, Phase 2 should evaluate whether GH's search layer can sit directly above the DICOMweb metadata exposed by ChRIS instances -- with GH providing the discovery and exploration UI while ChRIS handles storage and compute at each institution. This is the natural division of labor given what each party has already built.
+Federated compute entrypoint The full ATLAS vision is a researcher querying a central catalog spanning multiple institutional ChRIS nodes, selecting a cohort, and dispatching compute to each node -- without ever seeing the raw data. GH's platform is the intended home for this federated dispatch layer. Phase 2 defines what the researcher-facing entrypoint looks like, what GH's role is in routing compute jobs, and how results are aggregated and returned. These questions require direct engagement with GH's engineering team to scope.
+Immediate next step: Schedule a joint working session with BCH, ISC, and GH (Owen, Ellen's group) to walk through the Phase 1 MVP architecture, confirm compatibility with GH's indexing approach, establish open-source requirements for any shared components, and begin scoping the Phase 2 federated compute story.
