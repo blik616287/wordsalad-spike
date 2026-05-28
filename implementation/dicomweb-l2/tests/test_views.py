@@ -36,8 +36,11 @@ class DicomwebTestBase(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.chris = User.objects.create_user(username='chris',
-                                             password='chris1234')
+        # CUBE seeds a 'chris' user via a data migration, so reuse it rather
+        # than create_user (which hits a unique-username IntegrityError when the
+        # tests run inside a real CUBE). Tests use force_authenticate, so no
+        # password is needed.
+        cls.chris, _ = User.objects.get_or_create(username='chris')
         cls.pacs_user = User.objects.create_user(username='alice',
                                                  password='alice1234')
         grp, _ = Group.objects.get_or_create(name='pacs_users')
