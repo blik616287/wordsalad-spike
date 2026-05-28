@@ -10,7 +10,7 @@ from django.db import transaction
 from core.storage import connect_storage
 from pacsfiles.models import PACSFile, PACSSeries
 
-from .models import PACSInstance
+from .models import PACSInstance, PACSStudy
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,39 @@ def _as_int(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def study_defaults(ds):
+    """Patient/Study-level PACSStudy field values from a DICOM dataset.
+
+    Single source of truth for both ingest paths (the async indexer below and
+    the STOW-RS handler, which imports this).
+    """
+    return dict(
+        PatientID=str(getattr(ds, 'PatientID', '') or '')[:100],
+        PatientName=str(getattr(ds, 'PatientName', '') or '')[:150],
+        PatientBirthDate=_parse_dicom_date(getattr(ds, 'PatientBirthDate', None)),
+        PatientSex=str(getattr(ds, 'PatientSex', '') or '')[:1],
+        StudyDate=_parse_dicom_date(getattr(ds, 'StudyDate', None)),
+        StudyTime=_parse_dicom_time(getattr(ds, 'StudyTime', None)),
+        AccessionNumber=str(getattr(ds, 'AccessionNumber', '') or '')[:100],
+        StudyDescription=str(getattr(ds, 'StudyDescription', '') or '')[:400],
+        ReferringPhysicianName=str(getattr(ds, 'ReferringPhysicianName', '') or '')[:150],
+    )
+
+
+def refresh_study_rollups(study):
+    """Recompute a PACSStudy's series/instance counts + ModalitiesInStudy."""
+    series_qs = PACSSeries.objects.filter(
+        pacs=study.pacs, StudyInstanceUID=study.StudyInstanceUID)
+    modalities = sorted({s.Modality for s in series_qs if s.Modality})
+    study.ModalitiesInStudy = '\\'.join(modalities)
+    study.NumberOfStudyRelatedSeries = series_qs.count()
+    study.NumberOfStudyRelatedInstances = PACSInstance.objects.filter(
+        series__in=series_qs).count()
+    study.save(update_fields=['ModalitiesInStudy',
+                              'NumberOfStudyRelatedSeries',
+                              'NumberOfStudyRelatedInstances'])
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
@@ -145,6 +178,20 @@ def index_pacs_instance(self, pacs_file_id):
         )
 
         _backfill_series_tags(series, ds)
+
+        # Upsert the Study-level row so QIDO /studies surfaces oxidicom-ingested
+        # data. The STOW-RS path creates PACSStudy inline; the async indexer (the
+        # primary, oxidicom ingest path) must do the same or /studies stays empty.
+        study, _ = PACSStudy.objects.get_or_create(
+            pacs=series.pacs,
+            StudyInstanceUID=series.StudyInstanceUID,
+            defaults=study_defaults(ds),
+        )
+        # Link the series to its study when the PACSSeries.study FK exists.
+        if hasattr(series, 'study_id') and not series.study_id:
+            series.study = study
+            series.save(update_fields=['study'])
+        refresh_study_rollups(study)
 
 
 def _backfill_series_tags(series: PACSSeries, ds) -> None:

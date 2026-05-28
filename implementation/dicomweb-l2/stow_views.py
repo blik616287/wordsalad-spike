@@ -258,33 +258,15 @@ class StowView(generics.GenericAPIView):
         self._refresh_study_rollups(study)
         return inst
 
+    # Study defaults + roll-up maintenance live in tasks.py so the STOW path and
+    # the async oxidicom indexer stay consistent (single source of truth).
     def _study_defaults(self, ds):
-        from .tasks import _parse_dicom_date, _parse_dicom_time  # reuse Phase A
-        return dict(
-            PatientID=str(getattr(ds, 'PatientID', '') or '')[:100],
-            PatientName=str(getattr(ds, 'PatientName', '') or '')[:150],
-            PatientBirthDate=_parse_dicom_date(getattr(ds, 'PatientBirthDate', None)),
-            PatientSex=str(getattr(ds, 'PatientSex', '') or '')[:1],
-            StudyDate=_parse_dicom_date(getattr(ds, 'StudyDate', None)),
-            StudyTime=_parse_dicom_time(getattr(ds, 'StudyTime', None)),
-            AccessionNumber=str(getattr(ds, 'AccessionNumber', '') or '')[:100],
-            StudyDescription=str(getattr(ds, 'StudyDescription', '') or '')[:400],
-            ReferringPhysicianName=str(getattr(ds, 'ReferringPhysicianName', '') or '')[:150],
-        )
+        from .tasks import study_defaults
+        return study_defaults(ds)
 
     def _refresh_study_rollups(self, study):
-        series_qs = PACSSeries.objects.filter(
-            pacs=study.pacs, StudyInstanceUID=study.StudyInstanceUID)
-        modalities = sorted({s.Modality for s in series_qs if s.Modality})
-        n_series = series_qs.count()
-        n_inst = PACSInstance.objects.filter(
-            series__in=series_qs).count()
-        study.ModalitiesInStudy = '\\'.join(modalities)
-        study.NumberOfStudyRelatedSeries = n_series
-        study.NumberOfStudyRelatedInstances = n_inst
-        study.save(update_fields=['ModalitiesInStudy',
-                                  'NumberOfStudyRelatedSeries',
-                                  'NumberOfStudyRelatedInstances'])
+        from .tasks import refresh_study_rollups
+        return refresh_study_rollups(study)
 
     # ------------------------------------------------------------------ #
     # DICOM JSON Model response builders

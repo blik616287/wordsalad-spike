@@ -8,7 +8,9 @@ ingest pipeline — that's the Phase D integration-test job. They verify:
 """
 
 from datetime import date, time
+from unittest import mock
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 
 from dicomweb.tasks import (
@@ -68,3 +70,57 @@ class TaskImportSmokeTests(TestCase):
         entry = routes.get('dicomweb.tasks.index_pacs_instance')
         self.assertIsNotNone(entry)
         self.assertEqual(entry.get('queue'), 'main2')
+
+
+class IndexerStudyRollupTests(TestCase):
+    """index_pacs_instance must populate PACSStudy (not just PACSInstance), so
+    QIDO /studies surfaces oxidicom-ingested data -- the STOW path always did,
+    the async indexer previously did not."""
+
+    def _setup_tree(self):
+        from core.models import ChrisFolder
+        from pacsfiles.models import PACS, PACSSeries, PACSFile
+        owner, _ = User.objects.get_or_create(username='chris')
+        pacs_folder, _ = ChrisFolder.objects.get_or_create(
+            path='SERVICES/PACS/IDX', defaults={'owner': owner})
+        pacs = PACS.objects.create(identifier='IDX', folder=pacs_folder)
+        study_uid, series_uid, sop_uid = '9.9.1', '9.9.1.1', '9.9.1.1.1'
+        series_folder, _ = ChrisFolder.objects.get_or_create(
+            path=f'SERVICES/PACS/IDX/{study_uid}/{series_uid}',
+            defaults={'owner': owner})
+        series = PACSSeries.objects.create(
+            pacs=pacs, folder=series_folder,
+            SeriesInstanceUID=series_uid, StudyInstanceUID=study_uid,
+            PatientID='MRN9', PatientName='DOE^IDX', PatientSex='M',
+            StudyDate='2023-03-03', Modality='MR', SeriesNumber=1,
+            SeriesDescription='IDX')
+        pf = PACSFile(owner=owner, parent_folder=series_folder)
+        pf.fname.name = (f'SERVICES/PACS/IDX/{study_uid}/{series_uid}/'
+                         f'{sop_uid}.dcm')
+        pf.fsize = 1024
+        pf.save()
+        return pacs, series, pf, study_uid, series_uid, sop_uid
+
+    def test_indexer_creates_pacsstudy_and_rollups(self):
+        from dicomweb import tasks
+        from dicomweb.models import PACSInstance, PACSStudy
+        from dicomweb.tests.fixtures import make_dataset, dataset_to_bytes
+        pacs, series, pf, study_uid, series_uid, sop_uid = self._setup_tree()
+        raw = dataset_to_bytes(make_dataset(
+            study_uid=study_uid, series_uid=series_uid, sop_uid=sop_uid))
+
+        self.assertFalse(PACSStudy.objects.filter(
+            pacs=pacs, StudyInstanceUID=study_uid).exists())
+
+        fake_storage = mock.Mock()
+        fake_storage.download_obj.return_value = raw
+        with mock.patch.object(tasks, 'connect_storage',
+                               return_value=fake_storage):
+            tasks.index_pacs_instance.apply(args=[pf.pk])
+
+        self.assertTrue(PACSInstance.objects.filter(
+            series=series, SOPInstanceUID=sop_uid).exists())
+        study = PACSStudy.objects.get(pacs=pacs, StudyInstanceUID=study_uid)
+        self.assertEqual(study.NumberOfStudyRelatedSeries, 1)
+        self.assertEqual(study.NumberOfStudyRelatedInstances, 1)
+        self.assertIn('MR', study.ModalitiesInStudy)
