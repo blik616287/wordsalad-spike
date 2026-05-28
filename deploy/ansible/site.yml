@@ -23,6 +23,12 @@
 - name: Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)
   hosts: deploy_host
   gather_facts: true
+  # Chain our port-remap override onto miniChRIS's compose for every `docker
+  # compose` invocation in this play, so CUBE publishes on {{ cube_host_port }}
+  # instead of the hardcoded 8000. COMPOSE_PROJECT_NAME is also set per-task.
+  environment:
+    COMPOSE_FILE: "{{ minichris_dir }}/docker-compose.yml:{{ playbook_dir }}/compose-overrides/cube-port.yml"
+    CUBE_HOST_PORT: "{{ cube_host_port | string }}"
   roles:
     - role: prereqs
       tags: [prereqs]
