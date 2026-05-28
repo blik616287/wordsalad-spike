@@ -36,7 +36,7 @@ class Command(BaseCommand):
                             help='Log progress every N files.')
 
     def handle(self, *args, **opts):
-        from .. import tasks  # local import: avoid app-load import cycle
+        from dicomweb import tasks  # local import: avoid app-load import cycle
 
         qs = PACSFile.get_base_queryset().filter(fname__endswith='.dcm')
         if opts['pacs']:

@@ -36,7 +36,9 @@ and the occasional letter without crossing a ``/``. The more specific
 ``studies/<study>`` so resolution is unambiguous.
 """
 from django.urls import path, re_path
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 
 from . import qido_views, wado_views, stow_views
 
@@ -47,6 +49,10 @@ app_name = 'dicomweb'
 _UID = r'[0-9A-Za-z.\-]+'
 
 
+# These dispatchers are plain Django Views; DRF's per-view csrf_exempt does not
+# reach the inner as_view() through them, so exempt the dispatcher itself. The
+# inner DRF views still authenticate (Token/Basic) and never rely on CSRF.
+@method_decorator(csrf_exempt, name='dispatch')
 class StudiesRootDispatcher(View):
     """``/studies``: GET -> QIDO StudyList, POST -> STOW store (any study)."""
     http_method_names = ['get', 'post']
@@ -58,6 +64,7 @@ class StudiesRootDispatcher(View):
         return stow_views.StowView.as_view()(request, *args, **kwargs)
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class StudyDispatcher(View):
     """``/studies/<study>``: GET -> WADO retrieve study, POST -> STOW to study."""
     http_method_names = ['get', 'post']
