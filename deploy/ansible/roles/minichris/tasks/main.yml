@@ -93,9 +93,23 @@
   ansible.builtin.debug:
     msg: "CUBE responded 200 at {{ cube_api_url }}"
 
-- name: Confirm oxidicom DICOM listener port is open (AET ChRIS, :11111)
-  ansible.builtin.wait_for:
-    host: "{{ oxidicom_host }}"
-    port: "{{ oxidicom_dicom_port }}"
-    state: started
-    timeout: 60
+# Confirm oxidicom is ready WITHOUT opening a raw socket to its DIMSE port.
+# CRITICAL: do NOT use wait_for/raw TCP against :11111. oxidicom 3.0.0 treats a
+# bare TCP connect (one that never negotiates a DICOM A-ASSOCIATE) as a failed
+# association and PANICS its state-loop thread:
+#     thread 'main' panicked at src/association_series_state_loop.rs:112:
+#     Unknown association ULID
+# The container stays "Up" but the listener is dead, so EVERY subsequent C-STORE
+# silently fails (0 instances ingested). Verified empirically 2026-05-28.
+# We therefore gate on the container being in the `running` state instead.
+- name: Wait for the oxidicom service container to be running
+  ansible.builtin.command:
+    cmd: docker compose --profile pacs ps --status running -q oxidicom
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: oxidicom_running
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: oxidicom_running.stdout | trim | length > 0
