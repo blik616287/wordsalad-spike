@@ -1,3 +1,6 @@
 [submodule "deploy/vendor/miniChRIS-docker"]
 	path = deploy/vendor/miniChRIS-docker
 	url = https://github.com/FNNDSC/miniChRIS-docker.git
+[submodule "implementation/ChRIS_ultron_backEnd"]
+	path = implementation/ChRIS_ultron_backEnd
+	url = https://github.com/FNNDSC/ChRIS_ultron_backEnd.git
