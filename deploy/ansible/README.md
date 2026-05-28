@@ -8,7 +8,8 @@ The playbook:
 
 1. **Asserts prerequisites** (Docker daemon, Compose v2.6+, the
    `community.docker` collection, the Docker Python SDK).
-2. **Clones and brings up miniChRIS-docker** with the `pacs` profile (CUBE +
+2. **Brings up the vendored miniChRIS-docker** (a pinned git submodule at
+   `deploy/vendor/miniChRIS-docker`, run in place) with the `pacs` profile (CUBE +
    compute + the DICOM ingest pipeline: `oxidicom` + `nats` + the bundled
    Orthanc + `pfdcm`), then waits for CUBE to answer on `/api/v1/`.
 3. **Runs a separate test Orthanc** (`orthancteam/orthanc`) with the **DicomWeb
@@ -79,7 +80,14 @@ message if something is missing.
 
 ## One-command run
 
-From this directory (`deploy/ansible/`):
+miniChRIS-docker is a pinned git submodule, so initialize it once (only needed
+if the repo was cloned without `--recurse-submodules`):
+
+```bash
+git submodule update --init deploy/vendor/miniChRIS-docker   # from repo root, once
+```
+
+Then, from this directory (`deploy/ansible/`):
 
 ```bash
 ansible-galaxy collection install -r requirements.yml   # once
@@ -227,23 +235,25 @@ consistent with the ephemeral design).
 ## Files
 
 ```
-deploy/ansible/
-├── README.md                 # this file
-├── ansible.cfg               # inventory/roles paths, yaml stdout
-├── requirements.yml          # community.docker collection
-├── inventory.ini             # localhost, connection=local
-├── group_vars/all.yml        # pinned versions, ports, URLs, paths, toggles
-├── site.yml                  # orchestrates the roles
-├── scripts/
-│   ├── smoke.sh              # QIDO/WADO/STOW + core verification (pass/fail/skip)
-│   └── teardown.sh           # remove test Orthanc + miniChRIS down -v
-└── roles/
-    ├── prereqs/              # assert Docker + Compose + collection + SDK
-    ├── minichris/            # clone + up (pacs profile) + wait for CUBE health
-    ├── orthanc/              # run orthancteam/orthanc test PACS (DicomWeb+REST)
-    ├── sample_data/          # load DICOM into Orthanc, push to oxidicom
-    ├── dicomweb_app/         # overlay L2 code into running CUBE (the seam)
-    └── verify/               # run scripts/smoke.sh
+deploy/
+├── vendor/miniChRIS-docker/  # pinned git submodule (the stack we wrap)
+└── ansible/
+    ├── README.md                 # this file
+    ├── ansible.cfg               # inventory/roles paths, yaml-format stdout
+    ├── requirements.yml          # community.docker collection
+    ├── inventory.ini             # localhost, connection=local
+    ├── group_vars/all.yml        # pinned versions, ports, URLs, paths, toggles
+    ├── site.yml                  # orchestrates the roles
+    ├── scripts/
+    │   ├── smoke.sh              # QIDO/WADO/STOW + core verification (pass/fail/skip)
+    │   └── teardown.sh           # remove test Orthanc + miniChRIS down -v
+    └── roles/
+        ├── prereqs/              # assert Docker + Compose + collection + SDK
+        ├── minichris/            # bring up vendored submodule (pacs profile) + wait for CUBE
+        ├── orthanc/              # run orthancteam/orthanc test PACS (DicomWeb+REST)
+        ├── sample_data/          # load DICOM into Orthanc, push to oxidicom
+        ├── dicomweb_app/         # overlay L2 code into running CUBE (the seam)
+        └── verify/               # run scripts/smoke.sh
 ```
 
 ---

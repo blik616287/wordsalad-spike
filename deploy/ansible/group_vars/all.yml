@@ -12,10 +12,13 @@
 # ---------------------------------------------------------------------------
 # Workspace layout
 # ---------------------------------------------------------------------------
-# Where we clone miniChRIS-docker and stage helper files. Kept out of the repo
-# tree so `down -v` wipes nothing we care about.
+# Where we stage helper files (orthanc config, sample data). Kept out of the
+# repo tree so `down -v` wipes nothing we care about.
 deploy_workdir: "{{ ansible_env.HOME }}/.cache/dicomweb-spike"
-minichris_dir: "{{ deploy_workdir }}/miniChRIS-docker"
+# miniChRIS-docker is vendored as a git submodule (pinned), not cloned at
+# runtime. minichris.sh runs in place here; its runtime files (.env, etc.) are
+# covered by the submodule's own .gitignore, so the working tree stays clean.
+minichris_dir: "{{ repo_root }}/deploy/vendor/miniChRIS-docker"
 
 # Absolute path to this spike repo's deploy tree, derived from the playbook dir.
 # Used to locate the L2 implementation overlay and sample-data assets.
@@ -24,8 +27,10 @@ repo_root: "{{ playbook_dir }}/../.."
 # ---------------------------------------------------------------------------
 # miniChRIS-docker (the stack we WRAP, never fork)
 # ---------------------------------------------------------------------------
-minichris_repo_url: "https://github.com/FNNDSC/miniChRIS-docker.git"
-minichris_repo_version: "master"          # upstream pins images inside compose
+# Vendored as a submodule at deploy/vendor/miniChRIS-docker, pinned to commit
+# 4d689ba (the version validated for this spike). Bump the pin by checking out a
+# new commit in the submodule and committing the gitlink. Upstream pins its
+# service image tags inside docker-compose.yml.
 minichris_compose_project: "minichris"    # matches the `name:` overrides upstream
 
 # Docker Compose profiles. The bare default profile is CUBE + compute only; the
