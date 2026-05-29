@@ -124,3 +124,32 @@ class IndexerStudyRollupTests(TestCase):
         self.assertEqual(study.NumberOfStudyRelatedSeries, 1)
         self.assertEqual(study.NumberOfStudyRelatedInstances, 1)
         self.assertIn('MR', study.ModalitiesInStudy)
+
+    def test_index_from_metadata_no_file_read(self):
+        # Variant C: index purely from an oxidicom-parsed-tags message. No
+        # storage is configured/mocked here, so a passing test proves the path
+        # never reads the .dcm file.
+        from dicomweb import tasks
+        from dicomweb.models import PACSInstance, PACSStudy
+        pacs, series, pf, study_uid, series_uid, sop_uid = self._setup_tree()
+        meta = {
+            'pacs_name': pacs.identifier, 'fname': pf.fname.name,
+            'StudyInstanceUID': study_uid, 'SeriesInstanceUID': series_uid,
+            'SOPInstanceUID': sop_uid, 'SOPClassUID': '1.2.840.10008.5.1.4.1.1.4',
+            'InstanceNumber': 1, 'Rows': 256, 'Columns': 256, 'BitsAllocated': 16,
+            'NumberOfFrames': 1, 'TransferSyntaxUID': '1.2.840.10008.1.2',
+            'PatientID': 'MRN9', 'PatientName': 'DOE^IDX', 'PatientSex': 'M',
+            'StudyDate': '20230303', 'Modality': 'MR',
+        }
+        self.assertTrue(tasks.index_from_metadata(meta))
+        self.assertTrue(PACSInstance.objects.filter(
+            series=series, SOPInstanceUID=sop_uid).exists())
+        study = PACSStudy.objects.get(pacs=pacs, StudyInstanceUID=study_uid)
+        self.assertEqual(study.NumberOfStudyRelatedInstances, 1)
+        self.assertEqual(study.PatientID, 'MRN9')
+
+    def test_index_from_metadata_skips_unregistered(self):
+        from dicomweb import tasks
+        # No PACS/series/file set up -> returns False, indexes nothing.
+        self.assertFalse(tasks.index_from_metadata(
+            {'pacs_name': 'NOPE', 'SeriesInstanceUID': 's', 'SOPInstanceUID': 'i'}))

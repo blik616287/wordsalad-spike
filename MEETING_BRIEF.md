@@ -100,6 +100,12 @@ progress-only), so C depends on BCH agreeing to add that tag event. **If they wo
 (the Celery `.dcm` re-read becomes the primary indexer). **B wins** only if oxidicom is confirmed the
 *sole* ingestion path AND BCH will grow oxidicom's auth + HTTP serving.
 
+> **The CUBE-side of C is already prototyped + proven** (`consume_dicomweb_index` + `index_from_metadata`):
+> a NATS subscriber that upserts the index from a tags message with **no file re-read** — demonstrated
+> live by indexing a study whose `.dcm` does not exist in storage. The only missing piece is the one-line
+> oxidicom change to *publish* the tag event (subject `oxidicom-meta.<pacs>.<series>`); the consumer + DB
+> path is done. This de-risks C: if BCH says yes, CUBE is ready.
+
 > **The one factual question that swings D1:** *"Going forward, is oxidicom the only intended DICOM
 > ingestion path into CUBE, or are other routes planned — STOW-RS uploads, S3 bulk import, plugin
 > outputs writing into the PACS tree?"* → "only oxidicom" favors **B**; "others too" favors **C**.

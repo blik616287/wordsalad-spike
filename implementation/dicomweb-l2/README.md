@@ -41,13 +41,33 @@ dicomweb/
 ├── stow_views.py       # STOW-RS store
 ├── urls.py             # /dicom-web/pacs/<id>/... routing + config wiring notes
 ├── signals.py          # post_save(PACSFile) -> auto-index (real-time oxidicom ingest)
-├── tasks.py            # index_pacs_instance: PACSInstance + PACSStudy roll-ups
-├── management/commands/reindex_pacs_instances.py
+├── tasks.py            # index_pacs_instance (re-read) + index_from_metadata (variant C)
+├── management/commands/reindex_pacs_instances.py     # backfill (re-read path)
+├── management/commands/consume_dicomweb_index.py     # variant-C NATS consumer (no re-read)
 ├── migrations/         # 0001 PACSInstance, 0002 PACSStudy, 0003 pg_trgm (fuzzy)
 ├── tests/
 ├── MAPPING.md          # attribute → model-field map, per level
 └── README.md           # this file
 ```
+
+## Two indexing paths (re-read vs. variant C)
+
+The DICOMweb index can be populated two ways:
+
+- **Re-read (default, Phase A):** `index_pacs_instance` downloads each `.dcm` and
+  parses it with pydicom. Triggered in real time by `signals.py` (oxidicom
+  ingest) and by `reindex_pacs_instances` (backfill). Simple; re-parses bytes
+  oxidicom already parsed.
+- **Variant C (hybrid, prototype):** `index_from_metadata(meta)` upserts
+  `PACSInstance`/`PACSStudy` **from a tags message — no storage read, no
+  pydicom**. `consume_dicomweb_index` is a NATS subscriber that feeds it. This is
+  the architecture doc's D1 recommendation: an *extended* oxidicom publishes the
+  tags it already parsed in Rust; this consumer indexes them. oxidicom's current
+  NATS (LONK) carries progress only, so the tag-bearing event is the one new
+  piece oxidicom would add (subject `oxidicom-meta.<pacs>.<series>`; payload
+  schema in the command's docstring). **Proven live:** publishing a parsed-tags
+  event for a PACS whose file does not exist in storage still produced a complete
+  QIDO `/studies` result — so it came from the message, not a re-read.
 
 ## What this implements
 
