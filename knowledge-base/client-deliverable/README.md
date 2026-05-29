@@ -44,6 +44,17 @@ Tear down with `tooling/teardown.sh`.
 - **Prerequisites + full walkthrough + troubleshooting:** `operations/RUN_GUIDE.md`
 - **What the validation proves (with evidence):** `operations/VALIDATION_REPORT.md`
 
+**Prove it runs anywhere (clean-room).** To verify on a machine with nothing
+pre-installed, one command provisions a throwaway Ubuntu 24.04 KVM, installs only
+the documented prereqs, copies this bundle in, and runs `bootstrap.sh` + `run.sh`
+inside the guest:
+
+```sh
+operations/tooling/cleanroom_kvm.sh        # provision -> deploy -> validate -> destroy
+```
+
+(Needs KVM + libvirt + virt-install on the host; see `RUN_GUIDE.md` §7.)
+
 > Demo-grade stack with public dev credentials (`chris:chris1234`) — not for
 > production.
 

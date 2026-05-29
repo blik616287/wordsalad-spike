@@ -41,6 +41,10 @@ export ANSIBLE_COLLECTIONS_PATH="${COLLECTIONS_DIR}"
 # Keep all Ansible runtime state inside the bundle (no ~/.ansible writes).
 export ANSIBLE_HOME="${OPS_DIR}/.ansible"
 export ANSIBLE_LOCAL_TEMP="${OPS_DIR}/.ansible/tmp"
+# Put the venv's bin on PATH so tasks that shell out to venv tools (e.g. the
+# prereqs role calls `ansible-galaxy`) resolve them -- essential on a clean host
+# with no system-wide Ansible install.
+export PATH="${VENV_DIR}/bin:${PATH}"
 
 cd "${ANSIBLE_DIR}"
 exec "${VENV_DIR}/bin/ansible-playbook" \

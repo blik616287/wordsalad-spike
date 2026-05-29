@@ -54,3 +54,9 @@
 - **Symptom:** STOW of a large object (multi-frame volume, or a multi-instance multipart body) returns **500**; CUBE log: *"Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."* Latent because the ~200KB sample slices are under Django's 2.5MB default; real DICOM (CT/MR, enhanced/multi-frame) and multi-instance STOW bodies exceed it.
 - **Layer:** L2 deploy / settings. DICOMweb STOW inherently carries large binary bodies; the CUBE-wide Django cap blocks them before the view runs.
 - **Fix:** overlay settings patch sets `DATA_UPLOAD_MAX_MEMORY_SIZE = None` (no in-memory cap) so STOW accepts full-size objects. (Production would enforce a size policy at the proxy.) Applied via roles/dicomweb_app/files/overlay_patch.py.
+
+### B8 — clean-host failure: `ansible-galaxy` not found (venv bin not on PATH)
+- **Symptom (fresh-machine only):** prereqs role aborts: *"Error executing command: [Errno 2] No such file or directory: b'ansible-galaxy'"*. The prereqs task shells out to `ansible-galaxy collection list`, but `run.sh` invoked ansible via the venv's absolute path without putting the venv `bin` on PATH. On the dev host a system Ansible (miniconda) masked this; a clean Ubuntu VM has no system Ansible → not found.
+- **Layer:** tooling / run wrapper; only surfaces on a machine with no system-wide Ansible — exactly what the clean-room KVM test exercises.
+- **Fix:** `run.sh` now `export PATH="${VENV_DIR}/bin:${PATH}"` so task shell-outs resolve venv tools.
+- **Found by:** operations/tooling/cleanroom_kvm.sh (fresh Ubuntu 24.04 KVM).

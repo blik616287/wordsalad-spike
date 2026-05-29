@@ -187,7 +187,34 @@ To also reclaim the control-host artifacts, delete `operations/.venv`,
 
 ---
 
-## 7. Troubleshooting
+## 7. Clean-room reproducibility test (fresh Ubuntu VM)
+
+To prove the deployment runs on a machine with **nothing** pre-installed (no
+Ansible, Docker SDK, or miniChRIS — only the documented host prereqs), the
+deliverable ships a one-command clean-room harness that provisions a throwaway
+Ubuntu 24.04 KVM, installs just the prereqs via cloud-init, copies this
+deliverable in, and runs the real entrypoints (`bootstrap.sh` then `run.sh`)
+inside the guest — exactly what a client would do:
+
+```bash
+operations/tooling/cleanroom_kvm.sh           # provision -> deploy -> validate -> destroy
+operations/tooling/cleanroom_kvm.sh --keep    # leave the VM up afterwards (prints ssh cmd)
+operations/tooling/cleanroom_kvm.sh --destroy # tear down a previous --keep run
+```
+
+**Host (hypervisor) requirements:** KVM (`/dev/kvm`), libvirt + `virt-install`,
+`cloud-image-utils` (`cloud-localds`), `qemu-img`, and passwordless `sudo` for
+the libvirt image dir; the libvirt `default` NAT network. Install on Ubuntu with:
+`sudo apt install -y qemu-kvm libvirt-daemon-system virtinst cloud-image-utils`.
+
+The guest pulls all container images fresh over NAT, so allow time + bandwidth.
+The harness exits non-zero if the in-guest deploy or validation fails, so it
+doubles as a CI-style portability gate. Tunables via env: `VM_NAME`, `VM_RAM_MB`
+(default 6144), `VM_VCPUS` (4), `VM_DISK_GB` (40), `UBUNTU_RELEASE` (noble).
+
+---
+
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|

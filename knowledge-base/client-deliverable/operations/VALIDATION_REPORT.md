@@ -35,9 +35,13 @@ PLAY RECAP `skipped=3` are conditional error-guards/branch tasks that correctly
 no-op on the happy path — e.g. "fail if submodule missing", "fall back if no
 `*.dcm`" — not bypassed work.)
 
-Nine classes of defect were found and fixed (2 packaging/self-containment, 7
-runtime — see §4). The deliverable is now self-contained and runs reproducibly on
-any Docker host via a bootstrapped virtualenv.
+It was additionally validated **clean-room on a fresh Ubuntu 24.04 KVM** with
+nothing pre-installed (see §5): `bootstrap.sh` + `run.sh` came up green
+(`failed=0`, smoke 9/0/1, API 44/0).
+
+Ten classes of defect were found and fixed (2 packaging/self-containment, 8
+runtime/tooling — see §4). The deliverable is now self-contained and runs
+reproducibly on any Docker host via a bootstrapped virtualenv.
 
 ---
 
@@ -134,6 +138,13 @@ PACS: ['SPIKEORTHANC']   PACSSeries: 1   PACSStudy: 1   PACSInstance: 384
   volumes, and multi-instance bodies exceed it. → the overlay settings patch sets
   `DATA_UPLOAD_MAX_MEMORY_SIZE = None` so STOW accepts full-size bodies.
 
+- **B8 — clean-host failure: `ansible-galaxy` not on PATH (found by the clean-room
+  KVM test).** prereqs aborted: *"No such file or directory: b'ansible-galaxy'"*.
+  `run.sh` ran ansible via the venv's absolute path but didn't put the venv `bin`
+  on PATH, so the prereqs role's `ansible-galaxy` shell-out failed on a host with
+  no system Ansible (masked on the dev box by miniconda's). → `run.sh` now
+  `export PATH="${VENV_DIR}/bin:${PATH}"`. (run.sh)
+
 Full ledger with symptoms/citations: `.logs/BUG_LEDGER.md`.
 
 ---
@@ -225,6 +236,26 @@ WADO object byte-integrity ........... retrieved object parses as valid DICOM,
 This is the meaningful "stored correctly" check: the volume reconstructs with no
 missing slice, and a retrieved instance is byte-valid DICOM. (QIDO paginates by
 default — the count query passes an explicit `limit`; WADO metadata is unpaginated.)
+
+### Clean-room reproducibility — fresh Ubuntu 24.04 KVM
+The deliverable was run on a **throwaway Ubuntu 24.04 cloud-image VM** with nothing
+pre-installed beyond the documented host prereqs (Docker + compose-v2 + python3-venv
++ git + curl + unzip, installed by cloud-init) — no system Ansible, Docker SDK, or
+miniChRIS. The harness `tooling/cleanroom_kvm.sh` provisions the VM, copies the
+bundle in, and runs the real client entrypoints (`bootstrap.sh` then `run.sh`) in
+the guest, pulling all container images fresh over NAT. Result:
+
+```
+CLEAN-ROOM DEPLOY + VALIDATION PASSED (exit 0) on a fresh noble VM
+PLAY RECAP:  ok=68  failed=0  skipped=3
+Smoke:       9 pass, 0 fail, 1 skip
+API suite:  44 passed, 0 failed
+```
+
+This is the strongest "runs anywhere" evidence — and it earned its keep by catching
+**B8** (venv `bin` not on PATH), invisible on the dev host. Reproduce with
+`operations/tooling/cleanroom_kvm.sh` (host needs KVM + libvirt + virt-install; see
+`RUN_GUIDE.md` §7).
 
 ---
 
