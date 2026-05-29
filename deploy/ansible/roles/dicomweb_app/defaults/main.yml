@@ -1,10 +1,10 @@
 ---
 dicomweb_overlay_enabled: false
 dicomweb_l2_src: "{{ repo_root }}/implementation/dicomweb-l2"
-dicomweb_container_app_dir: "/home/localuser/chris_backend"
+dicomweb_container_app_dir: "/opt/app-root/src"
 dicomweb_app_name: "dicomweb"
 cube_service_name: "chris"
 cube_migrate_service_name: "db_migrate"
 cube_worker_service_name: "worker"
-minichris_dir: "{{ ansible_env.HOME }}/.cache/dicomweb-spike/miniChRIS-docker"
+minichris_dir: "{{ playbook_dir }}/../vendor/miniChRIS-docker"
 minichris_compose_project: "minichris"

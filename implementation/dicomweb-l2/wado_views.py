@@ -6,8 +6,8 @@ Implemented:
     GET  studies/{study}/series/{series}                  -> multipart/related; application/dicom
     GET  studies/{study}/series/{series}/instances/{sop}  -> multipart/related; application/dicom
     GET  .../metadata  (study | series | instance)        -> application/dicom+json
-    GET  .../instances/{sop}/frames/{frameList}           -> STUB (501) -- see note
-    GET  .../bulkdata  reference                          -> STUB (501) -- see note
+    GET  .../instances/{sop}/frames/{frameList}           -> multipart/related; octet-stream (native; 501 if compressed)
+    GET  .../bulkdata  reference                          -> multipart/related; octet-stream (native; 501 if compressed)
 
 Object retrieval streams the stored ``.dcm`` bytes from CUBE storage
 (``core.storage.connect_storage``) into ``multipart/related`` parts, one part

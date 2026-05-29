@@ -22,8 +22,8 @@ All paths are relative to the per-PACS root, so the full surface is:
     /dicom-web/pacs/<id>/studies/<study>/series/<series>/metadata         [WADO metadata]
     /dicom-web/pacs/<id>/studies/<study>/series/<series>/instances/<sop>  [WADO retrieve]
     /dicom-web/pacs/<id>/.../instances/<sop>/metadata                     [WADO metadata]
-    /dicom-web/pacs/<id>/.../instances/<sop>/frames/<frameList>           [WADO frames STUB 501]
-    /dicom-web/pacs/<id>/.../instances/<sop>/bulkdata                     [WADO bulkdata STUB 501]
+    /dicom-web/pacs/<id>/.../instances/<sop>/frames/<frameList>           [WADO frames: native octet-stream; 501 if compressed]
+    /dicom-web/pacs/<id>/.../instances/<sop>/bulkdata                     [WADO bulkdata: native octet-stream; 501 if compressed]
 
 Two paths carry BOTH a GET (QIDO/WADO) and a POST (STOW) operation:
 ``/studies`` and ``/studies/<study>``. Django binds one path to one view, so a
