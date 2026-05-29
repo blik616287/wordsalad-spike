@@ -122,6 +122,15 @@ class QidoStudyTests(DicomwebTestBase):
                                HTTP_ACCEPT='application/dicom+json')
         self.assertEqual(len(resp.json()), 1)
 
+    def test_studies_patientname_fuzzy(self):
+        # ?fuzzymatching=true -> Postgres pg_trgm __trigram_similar executed
+        # against the real test DB; proves the 0003 pg_trgm migration works.
+        resp = self.client.get(
+            '/dicom-web/pacs/BCH/studies?PatientName=DOE^JANE&fuzzymatching=true',
+            HTTP_ACCEPT='application/dicom+json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.json()), 1)
+
     def test_bad_query_400(self):
         resp = self.client.get('/dicom-web/pacs/BCH/studies?StudyDate=-',
                                HTTP_ACCEPT='application/dicom+json')
@@ -201,12 +210,8 @@ class WadoMetadataTests(DicomwebTestBase):
             HTTP_ACCEPT='application/dicom+json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_frames_stub_501(self):
-        sop = self.instances[0].SOPInstanceUID
-        resp = self.client.get(
-            f'/dicom-web/pacs/BCH/studies/{self.study_uid}/series/'
-            f'{self.series_uid}/instances/{sop}/frames/1')
-        self.assertEqual(resp.status_code, status.HTTP_501_NOT_IMPLEMENTED)
+    # (Native frame + bulkdata retrieval are exercised in WadoRetrieveTests,
+    # which stages real pixel bytes in storage.)
 
 
 @tag('wado', 'integration')
@@ -222,13 +227,43 @@ class WadoRetrieveTests(DicomwebTestBase):
         from django.conf import settings
         from core.storage import connect_storage
         storage = connect_storage(settings)
+        self.rows, self.cols = 8, 8  # small native frame: 8*8*2 bytes
         for n, inst in enumerate(self.instances, start=1):
             ds = make_dataset(study_uid=self.study_uid,
                               series_uid=self.series_uid,
-                              sop_uid=inst.SOPInstanceUID, instance_number=n)
+                              sop_uid=inst.SOPInstanceUID, instance_number=n,
+                              with_pixels=True, rows=self.rows, columns=self.cols)
             storage.upload_obj(inst.pacs_file.fname.name,
                                dataset_to_bytes(ds),
                                content_type='application/dicom')
+
+    def test_frames_native_octet_stream(self):
+        sop = self.instances[0].SOPInstanceUID
+        resp = self.client.get(
+            f'/dicom-web/pacs/BCH/studies/{self.study_uid}/series/'
+            f'{self.series_uid}/instances/{sop}/frames/1')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('multipart/related', resp['Content-Type'])
+        self.assertIn('application/octet-stream', resp['Content-Type'])
+        body = resp.content
+        # one native frame = Rows*Cols*1*2 bytes (16-bit, 1 sample) must be present
+        self.assertIn(b'Content-Type: application/octet-stream', body)
+        self.assertIn(str(self.rows * self.cols * 2).encode(), body)
+
+    def test_frames_out_of_range_404(self):
+        sop = self.instances[0].SOPInstanceUID
+        resp = self.client.get(
+            f'/dicom-web/pacs/BCH/studies/{self.study_uid}/series/'
+            f'{self.series_uid}/instances/{sop}/frames/9')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_bulkdata_native_octet_stream(self):
+        sop = self.instances[0].SOPInstanceUID
+        resp = self.client.get(
+            f'/dicom-web/pacs/BCH/studies/{self.study_uid}/series/'
+            f'{self.series_uid}/instances/{sop}/bulkdata')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('application/octet-stream', resp['Content-Type'])
 
     def test_retrieve_instance_multipart(self):
         sop = self.instances[0].SOPInstanceUID

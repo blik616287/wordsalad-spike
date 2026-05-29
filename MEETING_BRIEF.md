@@ -253,18 +253,18 @@ the overlay source the Ansible role copies into the running CUBE container.
   `PACSStudy`/`PACSSeries`/`PACSFile`/`PACSInstance`, returns the Store Instances Response
   (`ReferencedSOPSequence`/`FailedSOPSequence`/`FailureReason`) with `200`/`202`/`409`/`400`/`415`.
 
-**What it proves:** the design is real — the framework-free core (DICOM JSON encoder, multipart parser,
-QIDO query→`Q` builder) **was executed standalone this review and passes** (PN/IS/DA/TM encoding, binary
-multipart with embedded CRLF, date/time/wildcard/fuzzy query building). It reuses CUBE's auth and storage
-verbatim — **no new auth code**.
+**What it proves:** the design is real and **runs**. The full suite (**95/95**) was executed inside a real
+`ChRIS_ultron_backEnd` checkout (Django + Postgres + `pacsfiles`), and a **live stack served QIDO/WADO/STOW
+over real HTTP** — including **real-time auto-indexing** (oxidicom C-STORE → a brand-new PACS surfaced in
+QIDO `/studies` with no manual reindex), **fuzzy PN matching** (`pg_trgm`), and **native frame/bulkdata
+retrieval**. It reuses CUBE's auth and storage verbatim — **no new auth code**.
 
 **Honest limits — STATE THESE** ([README "Known limitations"](implementation/dicomweb-l2/README.md)):
-1. This is an **L2 test implementation, not a merged CI-green CUBE PR.** The HTTP/DB tests are written
-   but need a live CUBE checkout (Django+Postgres+storage) with the new migrations to run — **not executed
-   in a live stack here.**
-2. **`/frames`, `/bulkdata`, `/rendered`, `/thumbnail` are honest `501` stubs** — pixel rendering needs a
-   decode path (`pylibjpeg`/`gdcm`) Phase A deliberately skipped. OHIF can **browse + read metadata** but
-   **won't render pixels** until frames land (the expected MVP intermediate state).
+1. This is an **L2 test implementation, not yet a merged CI-green CUBE PR** — validated against a real CUBE
+   checkout + live stack (above), but not yet run through CUBE's own CI / submitted upstream.
+2. **`/frames` + `/bulkdata` work for NATIVE (uncompressed) transfer syntaxes** (raw octets, proven live);
+   **compressed/encapsulated** frames/bulkdata and `/rendered` + `/thumbnail` return `501` — transcoding
+   needs `pylibjpeg`/`gdcm`, deliberately out of scope.
 3. **No WADO transcoding** — stored Transfer Syntax only; a different requested syntax → `406`.
 4. **`includefield` is a no-op at the response layer** (always emits the full indexed set, which is a
    conformant superset); it can't surface a tag CUBE doesn't index (e.g. `StudyID`).

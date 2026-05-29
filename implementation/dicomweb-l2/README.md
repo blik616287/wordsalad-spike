@@ -37,12 +37,13 @@ dicomweb/
 ├── serializers.py      # row → DICOM JSON Model (Study/Series/Instance) + RetrieveURLBuilder
 ├── multipart.py        # multipart/related parser for STOW bodies — framework-free
 ├── qido_views.py       # QIDO-RS endpoints
-├── wado_views.py       # WADO-RS endpoints (retrieve + metadata; frames/bulkdata stubs)
+├── wado_views.py       # WADO-RS endpoints (retrieve + metadata + native frames/bulkdata)
 ├── stow_views.py       # STOW-RS store
 ├── urls.py             # /dicom-web/pacs/<id>/... routing + config wiring notes
-├── tasks.py            # Phase-A index_pacs_instance (kept verbatim)
+├── signals.py          # post_save(PACSFile) -> auto-index (real-time oxidicom ingest)
+├── tasks.py            # index_pacs_instance: PACSInstance + PACSStudy roll-ups
 ├── management/commands/reindex_pacs_instances.py
-├── migrations/         # 0001 PACSInstance (Phase A), 0002 PACSStudy (this spike)
+├── migrations/         # 0001 PACSInstance, 0002 PACSStudy, 0003 pg_trgm (fuzzy)
 ├── tests/
 ├── MAPPING.md          # attribute → model-field map, per level
 └── README.md           # this file
@@ -71,8 +72,9 @@ empty match, 400 on malformed query, 413 over the hard ceiling, 406 on bad
 Retrieve study / series / instance as `multipart/related; type="application/dicom"`
 (streamed from `core.storage`, no transcoding — stored Transfer Syntax only);
 `/metadata` at all three levels as `application/dicom+json` (with `PixelData`
-referenced via `BulkDataURI`, not inlined). **`/frames` and `/bulkdata` are
-honest stubs returning `501`** (see limitations).
+referenced via `BulkDataURI`, not inlined). **`/frames` and `/bulkdata` return
+raw pixel octets for native transfer syntaxes** (`501` for compressed; see
+limitations).
 
 ### STOW-RS (PS3.18 §10.5) — `stow_views.py`
 `POST studies` / `POST studies/{study}`. Parses `multipart/related;
@@ -94,7 +96,7 @@ study roll-up counters, returns the Store Instances Response
 | Renderers | Default `collectionjson` + `JSONRenderer` + `BrowsableAPIRenderer` | New `DicomJsonRenderer` (`application/dicom+json`), `DicomJsonAsJsonRenderer` (`application/json` alias), `MultipartRelatedRenderer` (WADO passthrough). |
 | Auth / permissions | Token/Basic/Session/LDAP + `IsChrisOrIsPACSUserReadOnly`, `pacs_users` group | Reused verbatim — no new auth code. |
 | Storage | `core.storage.connect_storage(settings)` over swift / s3 / fslink; `download_obj` / `upload_obj` | WADO reads via `download_obj`; STOW writes via `upload_obj`. No backend-specific code. |
-| Async indexing | Phase A `index_pacs_instance` on Celery queue `main2` | Kept; STOW indexes in-request (the bytes are in hand); `reindex_pacs_instances` backfills. |
+| Async indexing | Phase A `index_pacs_instance` on Celery queue `main2` | A `post_save(PACSFile)` signal (`signals.py`) auto-dispatches it in real time, so **oxidicom-ingested DICOM reaches QIDO/WADO with no manual reindex** (proven live). STOW indexes in-request; `reindex_pacs_instances` backfills pre-existing data. The indexer also upserts `PACSStudy` + roll-ups. |
 | Migrations | auto-generated via `just makemigrations` | `0001_initial` (Phase A, `PACSInstance`) kept; `0002_pacsstudy` added. Companion `pacsfiles` migration adds the `study` FK — regenerate in a real checkout. |
 
 Architecture context (variants A/B/C, `PACSStudy` vs GROUP BY, STOW scope,
@@ -160,11 +162,13 @@ State these in review.
 
 ### Functional scope (deliberate)
 
-1. **Frames / bulkdata / rendered / thumbnail are `501` stubs.** Per-frame and
-   rendered output needs a pixel-data decode path (`pylibjpeg`/`gdcm`) that
-   Phase A intentionally did not add. Whole-instance retrieve + metadata work,
-   so OHIF can browse + read metadata; **pixel rendering will not work until
-   frames are implemented** — the expected MVP intermediate state.
+1. **Frames / bulkdata: implemented for NATIVE (uncompressed) transfer syntaxes;
+   compressed + rendered/thumbnail still `501`.** `/frames` and `/bulkdata`
+   return raw pixel octets (`multipart/related; type="application/octet-stream"`,
+   slicing `PixelData`) for native syntaxes — verified live against an
+   oxidicom-ingested MR. **Encapsulated/compressed** syntaxes and
+   `/rendered` + `/thumbnail` still return `501` (transcoding needs
+   `pylibjpeg`/`gdcm`, deliberately out of scope).
 2. **No transcoding in WADO retrieve.** Stored Transfer Syntax only
    (`transfer-syntax=*`/default); a specific different syntax → `406`. Each
    multipart part's `Content-Type` is `application/dicom` **without** an explicit
