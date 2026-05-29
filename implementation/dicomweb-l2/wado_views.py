@@ -30,9 +30,11 @@ Spec: https://dicom.nema.org/medical/dicom/current/output/chtml/part18/sect_10.4
 multipart/related wire format cross-checked against Orthanc's DICOMweb plugin
 (https://orthanc.uclouvain.be/book/plugins/dicomweb.html).
 """
+import io
 import logging
 import uuid
 
+import pydicom
 from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -281,41 +283,130 @@ class InstanceMetadataView(_MetadataBase):
 # --------------------------------------------------------------------------- #
 # Frames / Bulkdata -- STUBS (return 501 Not Implemented)
 # --------------------------------------------------------------------------- #
-class FramesView(WadoBaseView):
-    """
-    GET .../instances/{sop}/frames/{frameList}  -- STUB.
-
-    Honest limitation: returning individual frames as
-    ``multipart/related; type="application/octet-stream"`` requires decoding the
-    pixel-data element (and, for encapsulated transfer syntaxes, splitting the
-    encapsulated fragments per frame). That needs pydicom + a pixel handler
-    (pylibjpeg / gdcm) which Phase A deliberately did not pull in. Until then we
-    return 501 so clients see an explicit "not implemented" rather than a wrong
-    payload. Whole-instance retrieval (above) and metadata both work today, so
-    OHIF can browse and read metadata; pixel rendering needs this endpoint.
-    """
+class _PixelBaseView(WadoBaseView):
+    """Shared helpers for the frames + bulkdata pixel endpoints."""
     renderer_classes = (MultipartRelatedRenderer, DicomJsonRenderer)
 
-    def get(self, request, *args, **kwargs):
-        # Validate the instance exists so we 404 (not 501) for unknown targets.
-        get_object_or_404(
+    def _instance_or_404(self):
+        return get_object_or_404(
             PACSInstance,
             series__pacs__identifier=self.kwargs['pacs_identifier'],
             series__StudyInstanceUID=self.kwargs['study_uid'],
             series__SeriesInstanceUID=self.kwargs['series_uid'],
             SOPInstanceUID=self.kwargs['sop_uid'])
-        return Response(
-            {'errorMessage': 'WADO-RS frame retrieval is not implemented in '
-                             'this build (needs a pixel-data decode path).'},
-            status=status.HTTP_501_NOT_IMPLEMENTED)
+
+    def _read_dataset(self, inst):
+        storage = connect_storage(settings)
+        raw = storage.download_obj(inst.pacs_file.fname.name)
+        return pydicom.dcmread(io.BytesIO(raw), force=True)
+
+    @staticmethod
+    def _is_encapsulated(ds):
+        ts = getattr(getattr(ds, 'file_meta', None), 'TransferSyntaxUID', None)
+        return bool(getattr(ts, 'is_encapsulated', False)), ts
+
+    @staticmethod
+    def _multipart_octets(chunks, transfer_syntax):
+        """Build a multipart/related; type="application/octet-stream" body."""
+        boundary = uuid.uuid4().hex
+        crlf = b'\r\n'
+        delim = b'--' + boundary.encode('ascii')
+        body = b''
+        for chunk in chunks:
+            body += (delim + crlf +
+                     b'Content-Type: application/octet-stream; transfer-syntax='
+                     + transfer_syntax.encode('ascii') + crlf +
+                     b'Content-Length: ' + str(len(chunk)).encode('ascii') + crlf +
+                     crlf + bytes(chunk) + crlf)
+        body += delim + b'--' + crlf
+        resp = HttpResponse(body, status=status.HTTP_200_OK)
+        resp['Content-Type'] = ('multipart/related; '
+                                'type="application/octet-stream"; '
+                                f'boundary={boundary}')
+        return resp
 
 
-class BulkdataView(WadoBaseView):
-    """GET .../bulkdata -- STUB, same rationale as FramesView."""
-    renderer_classes = (MultipartRelatedRenderer, DicomJsonRenderer)
+class FramesView(_PixelBaseView):
+    """
+    GET .../instances/{sop}/frames/{frameList}
+        -> multipart/related; type="application/octet-stream"  (PS3.18 10.4.1.x)
+
+    Returns the requested 1-based frames as raw pixel octets for NATIVE
+    (uncompressed) transfer syntaxes: frames are sliced out of PixelData
+    (7FE00010), frame_size = Rows*Columns*SamplesPerPixel*ceil(BitsAllocated/8).
+    Encapsulated/compressed syntaxes still return 501 -- splitting encapsulated
+    fragments / transcoding needs pylibjpeg|gdcm and is out of scope.
+    """
 
     def get(self, request, *args, **kwargs):
-        return Response(
-            {'errorMessage': 'WADO-RS bulkdata retrieval is not implemented in '
-                             'this build.'},
-            status=status.HTTP_501_NOT_IMPLEMENTED)
+        inst = self._instance_or_404()
+        try:
+            wanted = [int(n) for n in self.kwargs['frames'].split(',') if n != '']
+        except ValueError:
+            return Response({'errorMessage': 'invalid frame list'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not wanted:
+            return Response({'errorMessage': 'empty frame list'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            ds = self._read_dataset(inst)
+        except Exception as exc:
+            logger.error('WADO-RS frames: storage/parse failed for %s: %s',
+                         inst.SOPInstanceUID, exc)
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        encapsulated, ts = self._is_encapsulated(ds)
+        if encapsulated:
+            return Response(
+                {'errorMessage': 'frame retrieval for encapsulated/compressed '
+                                 'transfer syntaxes is not implemented (no '
+                                 'transcoding); native syntaxes are supported.'},
+                status=status.HTTP_501_NOT_IMPLEMENTED)
+        if 'PixelData' not in ds:
+            return Response({'errorMessage': 'instance has no PixelData'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        px = ds.PixelData
+        spp = int(getattr(ds, 'SamplesPerPixel', 1) or 1)
+        bytes_per_sample = (int(ds.BitsAllocated) + 7) // 8
+        nframes = int(getattr(ds, 'NumberOfFrames', 1) or 1)
+        frame_size = int(ds.Rows) * int(ds.Columns) * spp * bytes_per_sample
+
+        chunks = []
+        for n in wanted:
+            if n < 1 or n > nframes:
+                return Response(
+                    {'errorMessage': f'frame {n} out of range (1..{nframes})'},
+                    status=status.HTTP_404_NOT_FOUND)
+            chunks.append(px[(n - 1) * frame_size: n * frame_size])
+        return self._multipart_octets(chunks, str(ts) if ts else DEFAULT_TRANSFER_SYNTAX)
+
+
+class BulkdataView(_PixelBaseView):
+    """
+    GET .../instances/{sop}/bulkdata
+        -> multipart/related; type="application/octet-stream"
+
+    Returns the instance's bulk PixelData (the element the metadata's
+    ``BulkDataURI`` points at) for native transfer syntaxes; encapsulated -> 501.
+    """
+
+    def get(self, request, *args, **kwargs):
+        inst = self._instance_or_404()
+        try:
+            ds = self._read_dataset(inst)
+        except Exception as exc:
+            logger.error('WADO-RS bulkdata: storage/parse failed for %s: %s',
+                         inst.SOPInstanceUID, exc)
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        encapsulated, ts = self._is_encapsulated(ds)
+        if encapsulated:
+            return Response(
+                {'errorMessage': 'bulkdata for encapsulated/compressed transfer '
+                                 'syntaxes is not implemented (no transcoding).'},
+                status=status.HTTP_501_NOT_IMPLEMENTED)
+        if 'PixelData' not in ds:
+            return Response({'errorMessage': 'instance has no PixelData'},
+                            status=status.HTTP_404_NOT_FOUND)
+        return self._multipart_octets([ds.PixelData],
+                                      str(ts) if ts else DEFAULT_TRANSFER_SYNTAX)
