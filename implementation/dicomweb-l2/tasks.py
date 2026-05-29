@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import transaction
 
 from core.storage import connect_storage
-from pacsfiles.models import PACSFile, PACSSeries
+from pacsfiles.models import PACS, PACSFile, PACSSeries
 
 from .models import PACSInstance, PACSStudy
 
@@ -102,6 +102,74 @@ def refresh_study_rollups(study):
     study.save(update_fields=['ModalitiesInStudy',
                               'NumberOfStudyRelatedSeries',
                               'NumberOfStudyRelatedInstances'])
+
+
+def _study_defaults_from_meta(meta):
+    """PACSStudy defaults from an oxidicom-parsed-tags message (dict), the
+    message-driven analogue of study_defaults(ds)."""
+    return dict(
+        PatientID=str(meta.get('PatientID') or '')[:100],
+        PatientName=str(meta.get('PatientName') or '')[:150],
+        PatientBirthDate=_parse_dicom_date(meta.get('PatientBirthDate')),
+        PatientSex=str(meta.get('PatientSex') or '')[:1],
+        StudyDate=_parse_dicom_date(meta.get('StudyDate')),
+        StudyTime=_parse_dicom_time(meta.get('StudyTime')),
+        AccessionNumber=str(meta.get('AccessionNumber') or '')[:100],
+        StudyDescription=str(meta.get('StudyDescription') or '')[:400],
+        ReferringPhysicianName=str(meta.get('ReferringPhysicianName') or '')[:150],
+    )
+
+
+def index_from_metadata(meta):
+    """VARIANT C (hybrid): index PACSInstance + PACSStudy from oxidicom-parsed
+    DICOM tags delivered as a message (e.g. NATS), WITHOUT re-reading the .dcm.
+
+    ``meta`` is the JSON payload an *extended* oxidicom would publish per parsed
+    instance -- the same tags it already extracts in Rust during C-STORE. The
+    only DB reads here are FK lookups (PACS/PACSSeries/PACSFile, created by the
+    existing registration handshake); there is NO storage download and NO
+    pydicom parse. Contrast index_pacs_instance(), which re-reads each file.
+
+    Returns True if it indexed, False if the series/file isn't registered yet
+    (a production consumer would NAK/retry; oxidicom registers before/with the
+    metadata event so this is rare).
+    """
+    pacs = PACS.objects.filter(identifier=meta.get('pacs_name')).first()
+    series_uid = meta.get('SeriesInstanceUID')
+    sop_uid = meta.get('SOPInstanceUID')
+    if not (pacs and series_uid and sop_uid):
+        logger.warning('index_from_metadata: missing pacs/series/sop: %r', meta)
+        return False
+    series = PACSSeries.objects.filter(pacs=pacs,
+                                       SeriesInstanceUID=series_uid).first()
+    pacs_file = PACSFile.objects.filter(fname=meta.get('fname')).first()
+    if series is None or pacs_file is None:
+        logger.info('index_from_metadata: series/file not registered yet (%s)',
+                    sop_uid)
+        return False
+
+    with transaction.atomic():
+        PACSInstance.objects.update_or_create(
+            series=series, SOPInstanceUID=str(sop_uid),
+            defaults=dict(
+                pacs_file=pacs_file,
+                SOPClassUID=str(meta.get('SOPClassUID') or ''),
+                InstanceNumber=_as_int(meta.get('InstanceNumber')),
+                Rows=_as_int(meta.get('Rows')),
+                Columns=_as_int(meta.get('Columns')),
+                BitsAllocated=_as_int(meta.get('BitsAllocated')),
+                NumberOfFrames=_as_int(meta.get('NumberOfFrames')) or 1,
+                TransferSyntaxUID=str(meta.get('TransferSyntaxUID') or ''),
+            ),
+        )
+        study, _ = PACSStudy.objects.get_or_create(
+            pacs=pacs, StudyInstanceUID=str(meta.get('StudyInstanceUID') or ''),
+            defaults=_study_defaults_from_meta(meta))
+        if hasattr(series, 'study_id') and not series.study_id:
+            series.study = study
+            series.save(update_fields=['study'])
+        refresh_study_rollups(study)
+    return True
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
