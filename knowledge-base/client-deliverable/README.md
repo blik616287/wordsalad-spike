@@ -10,10 +10,42 @@ It corresponds to the grant deliverable **TA2 §2.6.1.6** — *Imaging-Native AP
 operational on CUBE.
 
 > **Status in one line:** the research output is complete, and the design is
-> validated by a working prototype — **97/97 tests pass** in a real CUBE checkout,
-> with all three endpoints exercised over live HTTP. See `proposal/` for the
-> findings and `reference/14-testing-and-validation.md` for the evidence ledger,
-> including an honest list of what is **not** yet proven.
+> validated by a working prototype — **97/97 unit/integration tests pass** in a
+> real CUBE checkout, and the **deployment stands up the full stack and serves
+> QIDO/WADO/STOW over live HTTP** (latest cold-cycle validation: smoke 9/0/1, API
+> 44/0). See `proposal/` for the findings, `operations/VALIDATION_REPORT.md` for
+> the deployment evidence, and `reference/14-testing-and-validation.md` for the
+> code-level evidence ledger.
+
+---
+
+## Quick start — run the testable deployment
+
+Stand up the whole stack (CUBE + oxidicom + Orthanc), ingest sample DICOM,
+overlay the L2 DICOMweb code, and run the validation — on any Docker host:
+
+```sh
+cd operations
+tooling/bootstrap.sh    # one-time: builds a venv + vendors miniChRIS (no system installs)
+./run.sh                # deploy + auto-run smoke + API validation (QIDO/WADO/STOW)
+```
+
+Then hit it (PACS id is the calling AET — here the test Orthanc's `SPIKEORTHANC`):
+
+```sh
+curl -u chris:chris1234 -H 'Accept: application/dicom+json' \
+  http://localhost:8000/dicom-web/pacs/SPIKEORTHANC/studies
+```
+
+Re-run just the validation any time: `./run.sh --tags verify`, or standalone
+`PACS_ID=SPIKEORTHANC ORTHANC_BASE_URL=http://localhost:8142 tooling/api_tests.sh`.
+Tear down with `tooling/teardown.sh`.
+
+- **Prerequisites + full walkthrough + troubleshooting:** `operations/RUN_GUIDE.md`
+- **What the validation proves (with evidence):** `operations/VALIDATION_REPORT.md`
+
+> Demo-grade stack with public dev credentials (`chris:chris1234`) — not for
+> production.
 
 ---
 
@@ -23,7 +55,7 @@ operational on CUBE.
 |---|---|---|
 | **`proposal/`** | The BCH-facing research deliverables: what's missing for DICOMweb compliance, the proposed data model, architecture options (A/B/C) with a recommendation, the phased plan, and the Phase A implementation write-up. Includes the live OpenAPI dumps and the Phase A code patch. | `RESEARCH_TICKET_OUTPUT.md` |
 | **`implementation/dicomweb-l2/`** | The full prototype `dicomweb` Django app — QIDO/WADO/STOW views, the DICOM-JSON encoder, the query parser, multipart handling, the two indexing paths, migrations, and the test suite. Drop-in for `chris_backend/dicomweb/`. | `README.md`, then `MAPPING.md` |
-| **`operations/ansible/`** | The deployment that wraps miniChRIS and overlays the app: `site.yml`, the six roles, compose overrides, and the `smoke.sh` / `teardown.sh` scripts. How to actually stand it up. | `ansible/README.md` |
+| **`operations/`** | The runnable deployment: `tooling/bootstrap.sh` (venv + vendored miniChRIS), `run.sh` (one-command deploy + validation), `tooling/api_tests.sh` (QIDO/WADO/STOW + auth + integrity), `tooling/teardown.sh`, the Ansible `site.yml` + six roles, and the run/validation docs. **This is how you stand it up and test it.** | `RUN_GUIDE.md` (then `VALIDATION_REPORT.md`) |
 | **`reference/`** | Supporting technical reference: the ChRIS/CUBE architecture, the DICOM and DICOMweb standards, the CUBE data model and REST API, the ingestion path (oxidicom), the implementation walkthrough, deployment notes, and the testing evidence. | `01-chris-architecture.md`, `05-dicomweb-qido-wado-stow.md` |
 
 ---
@@ -37,7 +69,9 @@ operational on CUBE.
 4. **`proposal/PHASE_A_IMPLEMENTATION.md`** — the shipped foundation + validation log.
 5. **`implementation/dicomweb-l2/README.md`** — the prototype, with its honest
    limitations section.
-6. **`operations/ansible/README.md`** — how to deploy and smoke-test it.
+6. **`operations/RUN_GUIDE.md`** — how to stand up and validate the live
+   deployment (see also the Quick start above); `operations/VALIDATION_REPORT.md`
+   for the evidence it works.
 7. **`reference/`** — depth on any term, subsystem, or decision as needed.
 
 ---
@@ -56,15 +90,21 @@ existing authentication chain unchanged. Full endpoint→handler map is in
 
 ---
 
-## How to run the test suite
+## Two ways to test
 
-The prototype's suite runs inside a real CUBE checkout via CUBE's own harness:
+**1. The deployment (recommended) — live end-to-end.** See *Quick start* above:
+`operations/tooling/bootstrap.sh` then `operations/run.sh` brings up the real
+stack and auto-runs the smoke + API validation against live QIDO/WADO/STOW.
+Full guide: `operations/RUN_GUIDE.md`; evidence: `operations/VALIDATION_REPORT.md`.
+
+**2. The code-level unit/integration suite** — runs inside a real CUBE checkout
+via CUBE's own harness:
 
 ```sh
 just test dicomweb
 ```
 
 This builds `cube:dev`, stands up Postgres, applies the migrations, and runs the
-unit + integration tests. The framework-free core (encoders, query parser,
-multipart, serializers) also runs standalone in a plain venv. Details and the
-full evidence ledger: `reference/14-testing-and-validation.md`.
+unit + integration tests (97/97). The framework-free core (encoders, query
+parser, multipart, serializers) also runs standalone in a plain venv. Details and
+the full evidence ledger: `reference/14-testing-and-validation.md`.
