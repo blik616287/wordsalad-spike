@@ -1,0 +1,24 @@
+# Python dependencies for the DICOMweb-on-CUBE deployment control host.
+# Installed into a local virtualenv by tooling/bootstrap.sh so the deployment
+# runs the same way on any machine, independent of the system Python/Ansible.
+#
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+#
+# These run on the *control* host only (the machine driving the deploy). The
+# CUBE/oxidicom/Orthanc services themselves run in Docker and need none of this.
+
+# Ansible: drives the playbook. 2.17+ is required by community.docker 4/5.
+ansible-core>=2.17,<2.21
+
+# Docker SDK for Python: required by the community.docker.docker_* modules
+# (docker_container, docker_network_info) and asserted by the prereqs role.
+docker>=6,<8
+
+# requests: used by the Docker SDK and handy for ad-hoc checks.
+requests>=2.28
+
+# pydicom: used ONLY by tooling/api_tests.sh to mint a fresh-UID DICOM object so
+# the STOW-RS store path can be exercised without colliding with already-ingested
+# data. Not needed by the deploy itself (pydicom is installed into the containers
+# by the overlay).
+pydicom>=3.0,<4.0

@@ -1,0 +1,121 @@
+
+PLAY [Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)] ***********
+
+TASK [Gathering Facts] *********************************************************
+ok: [localhost]
+
+TASK [dicomweb_app : Report integration seam status] ***************************
+ok: [localhost] => 
+    msg: dicomweb_overlay_enabled=true. Overlaying + wiring L2 code into the running CUBE
+        + worker containers.
+
+TASK [dicomweb_app : Describe the seam (always shown, for the stakeholder walk-through)] ***
+ok: [localhost] => 
+    msg:
+    - 'INTEGRATION SEAM (roles/dicomweb_app):'
+    - '  source on host : /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2'
+    - '  target in image: /opt/app-root/src/dicomweb/'
+    - '  services touched: chris (API) + worker (Celery indexer)'
+    - '  steps: copy code -> wire INSTALLED_APPS + urls (as root) -> migrate -> restart'
+    - '  endpoints exposed: /dicom-web/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)'
+    - '  NOTE: dev overlay only. Production rebuilds the cube image.'
+
+TASK [dicomweb_app : Assert the L2 source tree exists on the host] *************
+ok: [localhost]
+
+TASK [dicomweb_app : Fail clearly if L2 source is missing] *********************
+skipping: [localhost]
+
+TASK [dicomweb_app : Resolve the running CUBE (chris) container id] ************
+ok: [localhost]
+
+TASK [dicomweb_app : Resolve the running worker container id] ******************
+ok: [localhost]
+
+TASK [dicomweb_app : Copy L2 app + wiring patcher into the chris and worker containers] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/tmp/overlay_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/tmp/overlay_patch.py)
+
+TASK [dicomweb_app : Install the L2 app's extra Python deps (pydicom) into chris + worker] ***
+[ERROR]: Task failed: Action failed.
+Origin: /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/tasks/main.yml:94:7
+
+92     # STOW handler (stow_views) and the indexer (tasks) import it -- without this
+93     # the app fails to import. Production bakes pydicom into the image instead.
+94     - name: Install the L2 app's extra Python deps (pydicom) into chris + worker
+         ^ column 7
+
+failed: [localhost] (item=chris) => 
+    ansible_loop_var: item
+    changed: true
+    changed_when_result: 'Error while evaluating conditional: ''stdout'' is undefined'
+    cmd:
+    - docker
+    - compose
+    - exec
+    - -T
+    - --user
+    - root
+    - chris
+    - pip
+    - install
+    - pydicom>=3.0,<4.0
+    delta: '0:00:01.224776'
+    end: '2026-05-29 14:46:20.071614'
+    item: chris
+    msg: ''
+    rc: 0
+    start: '2026-05-29 14:46:18.846838'
+    stderr: |4-
+
+        [notice] A new release of pip is available: 24.2 -> 26.1.1
+        [notice] To update, run: pip install --upgrade pip
+    stderr_lines: <omitted>
+    stdout: |-
+        Collecting pydicom<4.0,>=3.0
+          Downloading pydicom-3.0.2-py3-none-any.whl.metadata (9.4 kB)
+        Downloading pydicom-3.0.2-py3-none-any.whl (2.4 MB)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.4/2.4 MB 25.9 MB/s eta 0:00:00
+        Installing collected packages: pydicom
+        Successfully installed pydicom-3.0.2
+    stdout_lines: <omitted>
+failed: [localhost] (item=worker) => 
+    ansible_loop_var: item
+    changed: true
+    changed_when_result: 'Error while evaluating conditional: ''stdout'' is undefined'
+    cmd:
+    - docker
+    - compose
+    - exec
+    - -T
+    - --user
+    - root
+    - worker
+    - pip
+    - install
+    - pydicom>=3.0,<4.0
+    delta: '0:00:01.151143'
+    end: '2026-05-29 14:46:21.386416'
+    item: worker
+    msg: ''
+    rc: 0
+    start: '2026-05-29 14:46:20.235273'
+    stderr: |4-
+
+        [notice] A new release of pip is available: 24.2 -> 26.1.1
+        [notice] To update, run: pip install --upgrade pip
+    stderr_lines: <omitted>
+    stdout: |-
+        Collecting pydicom<4.0,>=3.0
+          Downloading pydicom-3.0.2-py3-none-any.whl.metadata (9.4 kB)
+        Downloading pydicom-3.0.2-py3-none-any.whl (2.4 MB)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.4/2.4 MB 25.1 MB/s eta 0:00:00
+        Installing collected packages: pydicom
+        Successfully installed pydicom-3.0.2
+    stdout_lines: <omitted>
+
+PLAY RECAP *********************************************************************
+localhost                  : ok=7    changed=1    unreachable=0    failed=1    skipped=1    rescued=0    ignored=0   
+

@@ -1,0 +1,5 @@
+---
+# Minimum versions we assert. Compose v2.6+ is the upstream requirement
+# (miniChRIS-docker README: "requires docker-compose version v2.6 or above").
+prereqs_min_compose_version: "2.6.0"
+prereqs_required_collection: "community.docker"

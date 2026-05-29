@@ -1,0 +1,13 @@
+# Compose override chained onto miniChRIS-docker's docker-compose.yml (via the
+# COMPOSE_FILE env set in site.yml) to make CUBE's published host port
+# configurable. Upstream hardcodes "8000:8000" for the `chris` service, which
+# collides with anything already bound to host :8000.
+#
+# `!override` REPLACES the base port list (rather than the default merge, which
+# APPENDS and would keep publishing 8000). The port is driven by CUBE_HOST_PORT
+# (default 8000), set from the `cube_host_port` Ansible var.
+#   docker compose -f docker-compose.yml -f cube-port.yml config  # to verify
+services:
+  chris:
+    ports: !override
+      - "${CUBE_HOST_PORT:-8000}:8000"

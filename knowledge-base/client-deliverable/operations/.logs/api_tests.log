@@ -1,0 +1,48 @@
+==============================================================================
+ DICOMweb-on-CUBE :: API test suite   (PACS=SPIKEORTHANC)
+ base: http://localhost:8000    python: /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/.venv/bin/python
+==============================================================================
+  RESULT  METHOD  ENDPOINT                                             ASSERT
+
+== CUBE REST API + auth ==
+  [PASS]  GET     /api/v1/ (basic auth)                                200
+  [PASS]  GET     /pacs/series/ (no auth)                              401 (protected)
+  [PASS]  POST    /auth-token/                                         200 (issues token)
+  [PASS]  GET     /pacs/series/ (basic auth)                           >=1 ingested series (n=3)
+
+== Authenticated paths on DICOMweb (Basic + Token) ==
+  [PASS]  GET     /studies (Basic auth)                                200
+  [PASS]  GET     /studies (Token auth)                                200
+  [PASS]  GET     /studies (no auth)                                   401 (rejected)
+  [PASS]  GET     /studies (bad creds)                                 401 (rejected)
+
+== QIDO-RS (query) ==
+  [PASS]  GET     /studies                                             200 dicom+json
+  [PASS]  GET     /studies                                             body: 0020000D present
+  [PASS]  GET     /studies (Accept json)                               200 (json==dicom+json)
+  [PASS]  GET     /studies?ModalitiesInStudy=MR                        200 filtered
+  [PASS]  GET     /studies?PatientName=*                               200 (wildcard)
+  [PASS]  GET     /studies/<uid>/series                                200
+  [PASS]  GET     /studies/<uid>/instances                             200
+  [PASS]  GET     /series (cross-study)                                200
+  [PASS]  GET     /instances (cross-study)                             200
+  [PASS]  GET     /studies?StudyDate=- (bad)                           400
+  [PASS]  GET     /pacs/NOPE/studies                                   404 (unknown PACS)
+
+== WADO-RS (retrieve) ==
+  [PASS]  GET     /studies/<uid>/metadata                              200 dicom+json
+  [PASS]  GET     /studies/<uid>/metadata                              body: 384 instances
+  [PASS]  GET     .../series/<s>/metadata                              200
+  [PASS]  GET     .../instances/<sop>/metadata                         200
+  [PASS]  GET     .../instances/<sop>                                  multipart/related
+  [PASS]  GET     .../frames/1                                         200 (native 200 / encap 501)
+
+== STOW-RS (store) ==
+  [PASS]  POST    /studies (fresh object)                              200, ReferencedSOP=1 Failed=0
+  [PASS]  GET     /studies?StudyInstanceUID=<new>                      round-trip: stored study queryable
+  [PASS]  POST    /studies (empty body)                                400 (rejects cleanly)
+  [PASS]  POST    /studies (bad media type)                            415
+
+==============================================================================
+ API tests: 29 passed, 0 failed (of 29)
+==============================================================================

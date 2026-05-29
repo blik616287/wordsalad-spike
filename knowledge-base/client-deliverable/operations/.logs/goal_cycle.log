@@ -1,0 +1,833 @@
+goal cycle 2026-05-29T16:01:51-05:00
+
+PLAY [Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)] ***********
+
+TASK [Gathering Facts] *********************************************************
+ok: [localhost]
+
+TASK [prereqs : Check that the docker CLI is on PATH] **************************
+ok: [localhost]
+
+TASK [prereqs : Show docker version] *******************************************
+ok: [localhost] => 
+    msg: Docker version 29.5.2, build 79eb04c
+
+TASK [prereqs : Check that the Docker daemon is reachable] *********************
+ok: [localhost]
+
+TASK [prereqs : Check Docker Compose v2 plugin is available] *******************
+ok: [localhost]
+
+TASK [prereqs : Assert Compose meets the minimum upstream version (>= 2.6.0)] ***
+ok: [localhost] => 
+    changed: false
+    msg: Docker Compose 5.1.4 OK
+
+TASK [prereqs : Assert the community.docker Ansible collection is installed] ***
+ok: [localhost]
+
+TASK [prereqs : Assert the Docker SDK for Python is importable (needed by docker_* modules)] ***
+ok: [localhost]
+
+TASK [prereqs : Prereqs summary] ***********************************************
+ok: [localhost] => 
+    msg:
+    - 'docker            : Docker version 29.5.2, build 79eb04c'
+    - 'daemon ServerVer  : 29.5.2'
+    - 'compose           : 5.1.4'
+    - 'docker python SDK : 7.1.0'
+    - 'community.docker : installed'
+
+TASK [minichris : Ensure the deploy workdir exists] ****************************
+[WARNING]: Deprecation warnings can be disabled by setting `deprecation_warnings=False` in ansible.cfg.
+[DEPRECATION WARNING]: INJECT_FACTS_AS_VARS default to `True` is deprecated, top-level facts will not be auto injected after the change. This feature will be removed from ansible-core version 2.24.
+Origin: /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/group_vars/all.yml:17:17
+
+15 # Where we stage helper files (orthanc config, sample data). Kept out of the
+16 # repo tree so `down -v` wipes nothing we care about.
+17 deploy_workdir: "{{ ansible_env.HOME }}/.cache/dicomweb-spike"
+                   ^ column 17
+
+Use `ansible_facts["fact_name"]` (no `ansible_` prefix) instead.
+
+ok: [localhost]
+
+TASK [minichris : Assert the vendored miniChRIS-docker submodule is checked out] ***
+ok: [localhost]
+
+TASK [minichris : Fail with init instructions if the submodule is missing] *****
+skipping: [localhost]
+
+TASK [minichris : Report vendored stack] ***************************************
+ok: [localhost] => 
+    msg: Using vendored (pinned) miniChRIS-docker submodule at /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../vendor/miniChRIS-docker
+
+TASK [minichris : Bring up the default-profile services via minichris.sh (also runs chrisomatic)] ***
+changed: [localhost]
+
+TASK [minichris : Bring up the PACS-pipeline profile (orthanc + pfdcm + oxidicom + nats)] ***
+changed: [localhost]
+
+TASK [minichris : List running compose services] *******************************
+ok: [localhost]
+
+TASK [minichris : Show compose ps] *********************************************
+ok: [localhost] => 
+    minichris_ps.stdout_lines:
+    - NAME                          IMAGE                                      COMMAND                  SERVICE           CREATED          STATUS                    PORTS
+    - chris                         ghcr.io/fnndsc/cube:6.11.0                 "container-entrypoin…"   chris             21
+        seconds ago   Up 12 seconds             0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp,
+        8080/tcp
+    - minichris-chris_ui-1          ghcr.io/fnndsc/chris_ui:d65741e            "/docker-entrypoint.…"   chris_ui          21
+        seconds ago   Up 20 seconds (healthy)   80/tcp, 0.0.0.0:8020->8020/tcp, [::]:8020->8020/tcp
+    - minichris-db-1                docker.io/library/postgres:17              "docker-entrypoint.s…"   db                21
+        seconds ago   Up 20 seconds (healthy)   5432/tcp
+    - minichris-nats-1              docker.io/library/nats:2.11.4-alpine       "docker-entrypoint.s…"   nats              6
+        seconds ago    Up 6 seconds (healthy)    6222/tcp, 0.0.0.0:4222->4222/tcp, [::]:4222->4222/tcp,
+        8222/tcp
+    - minichris-orthanc-1           docker.io/jodogne/orthanc-plugins:1.12.7   "Orthanc
+        /etc/orthan…"   orthanc           6 seconds ago    Up 6 seconds              0.0.0.0:4242->4242/tcp,
+        [::]:4242->4242/tcp, 0.0.0.0:8042->8042/tcp, [::]:8042->8042/tcp
+    - minichris-oxidicom-1          ghcr.io/fnndsc/oxidicom:3.0.0              "/oxidicom"              oxidicom          6
+        seconds ago    Up Less than a second     0.0.0.0:11111->11111/tcp, [::]:11111->11111/tcp
+    - minichris-queue-1             docker.io/library/rabbitmq:3               "docker-entrypoint.s…"   queue             21
+        seconds ago   Up 20 seconds (healthy)   4369/tcp, 5671/tcp, 15691-15692/tcp, 25672/tcp,
+        0.0.0.0:5672->5672/tcp, [::]:5672->5672/tcp
+    - minichris-scheduler-1         ghcr.io/fnndsc/cube:6.11.0                 "container-entrypoin…"   scheduler         21
+        seconds ago   Up 12 seconds             8080/tcp
+    - minichris-worker-1            ghcr.io/fnndsc/cube:6.11.0                 "container-entrypoin…"   worker            21
+        seconds ago   Up 12 seconds             8080/tcp
+    - minichris-worker_periodic-1   ghcr.io/fnndsc/cube:6.11.0                 "container-entrypoin…"   worker_periodic   21
+        seconds ago   Up 12 seconds             8080/tcp
+    - pfcon                         ghcr.io/fnndsc/pfcon:5.2.3                 "/entrypoint.sh
+        guni…"   pfcon             21 seconds ago   Up 19 seconds             0.0.0.0:5005->5005/tcp,
+        [::]:5005->5005/tcp
+    - pfdcm                         ghcr.io/fnndsc/pfdcm:3.1.2                 "/start.sh"              pfdcm             6
+        seconds ago    Up 5 seconds              80/tcp, 5555/tcp, 10402/tcp, 10502/tcp,
+        11113/tcp, 0.0.0.0:4005->4005/tcp, [::]:4005->4005/tcp
+    - pman                          ghcr.io/fnndsc/pman:6.2.0                  "gunicorn
+        --bind 0.0…"   pman              21 seconds ago   Up 19 seconds             0.0.0.0:5010->5010/tcp,
+        [::]:5010->5010/tcp
+
+TASK [minichris : Wait for CUBE API to answer on /api/v1/ (auth required)] *****
+ok: [localhost]
+
+TASK [minichris : CUBE is healthy] *********************************************
+ok: [localhost] => 
+    msg: CUBE responded 200 at http://localhost:8000/api/v1/
+
+TASK [minichris : Wait for the oxidicom service container to be running] *******
+ok: [localhost]
+
+TASK [orthanc : Skip test Orthanc when disabled] *******************************
+skipping: [localhost]
+
+TASK [orthanc : Ensure orthanc config dir exists] ******************************
+ok: [localhost]
+
+TASK [orthanc : Render Orthanc config (DicomWeb + REST + ChRIS modality)] ******
+ok: [localhost]
+
+TASK [orthanc : Confirm the miniChRIS local network exists (so we can reach oxidicom by name)] ***
+ok: [localhost]
+
+TASK [orthanc : Run the test Orthanc container] ********************************
+changed: [localhost]
+
+TASK [orthanc : Wait for the test Orthanc REST API] ****************************
+ok: [localhost]
+
+TASK [orthanc : Show Orthanc system info] **************************************
+ok: [localhost] => 
+    msg: 'Test Orthanc up: DICOMweb Spike Test PACS v1.12.4 at http://localhost:8142 (DIMSE
+        4342)'
+
+TASK [orthanc : Verify the DicomWeb plugin is loaded] **************************
+ok: [localhost]
+
+TASK [orthanc : Confirm the ChRIS (oxidicom) modality is registered and reachable (C-ECHO)] ***
+ok: [localhost]
+
+TASK [orthanc : Report C-ECHO to oxidicom] *************************************
+ok: [localhost] => 
+    msg: C-ECHO oxidicom -> status 200 (200/204 = reachable)
+
+TASK [sample_data : Skip sample-data loading] **********************************
+skipping: [localhost]
+
+TASK [sample_data : Ensure sample-data workdir exists] *************************
+ok: [localhost]
+
+TASK [sample_data : Download sample DICOM archive] *****************************
+ok: [localhost]
+
+TASK [sample_data : Unpack sample DICOM archive] *******************************
+changed: [localhost]
+
+TASK [sample_data : Resolve the directory to scan for .dcm files] **************
+ok: [localhost]
+
+TASK [sample_data : Find DICOM files to upload] ********************************
+ok: [localhost]
+
+TASK [sample_data : Fall back to scanning all files if no *.dcm matched] *******
+skipping: [localhost]
+
+TASK [sample_data : Select the file list to upload] ****************************
+ok: [localhost]
+
+TASK [sample_data : Assert we have at least one candidate file] ****************
+ok: [localhost] => 
+    changed: false
+    msg: All assertions passed
+
+TASK [sample_data : Upload candidate files to test Orthanc (POST /instances)] ***
+ok: [localhost] => (item=N2D_0121.dcm)
+ok: [localhost] => (item=N2D_0213.dcm)
+ok: [localhost] => (item=N2D_0333.dcm)
+ok: [localhost] => (item=N2D_0247.dcm)
+ok: [localhost] => (item=N2D_0144.dcm)
+ok: [localhost] => (item=N2D_0170.dcm)
+ok: [localhost] => (item=N2D_0380.dcm)
+ok: [localhost] => (item=N2D_0139.dcm)
+ok: [localhost] => (item=N2D_0322.dcm)
+ok: [localhost] => (item=N2D_0342.dcm)
+ok: [localhost] => (item=N2D_0005.dcm)
+ok: [localhost] => (item=N2D_0220.dcm)
+ok: [localhost] => (item=N2D_0255.dcm)
+ok: [localhost] => (item=N2D_0216.dcm)
+ok: [localhost] => (item=N2D_0246.dcm)
+ok: [localhost] => (item=N2D_0283.dcm)
+ok: [localhost] => (item=N2D_0009.dcm)
+ok: [localhost] => (item=N2D_0348.dcm)
+ok: [localhost] => (item=N2D_0193.dcm)
+ok: [localhost] => (item=N2D_0038.dcm)
+ok: [localhost] => (item=N2D_0122.dcm)
+ok: [localhost] => (item=N2D_0228.dcm)
+ok: [localhost] => (item=N2D_0004.dcm)
+ok: [localhost] => (item=N2D_0136.dcm)
+ok: [localhost] => (item=N2D_0003.dcm)
+ok: [localhost] => (item=N2D_0306.dcm)
+ok: [localhost] => (item=N2D_0218.dcm)
+ok: [localhost] => (item=N2D_0075.dcm)
+ok: [localhost] => (item=N2D_0164.dcm)
+ok: [localhost] => (item=N2D_0027.dcm)
+ok: [localhost] => (item=N2D_0276.dcm)
+ok: [localhost] => (item=N2D_0074.dcm)
+ok: [localhost] => (item=N2D_0019.dcm)
+ok: [localhost] => (item=N2D_0174.dcm)
+ok: [localhost] => (item=N2D_0178.dcm)
+ok: [localhost] => (item=N2D_0206.dcm)
+ok: [localhost] => (item=N2D_0252.dcm)
+ok: [localhost] => (item=N2D_0098.dcm)
+ok: [localhost] => (item=N2D_0279.dcm)
+ok: [localhost] => (item=N2D_0073.dcm)
+ok: [localhost] => (item=N2D_0043.dcm)
+ok: [localhost] => (item=N2D_0090.dcm)
+ok: [localhost] => (item=N2D_0334.dcm)
+ok: [localhost] => (item=N2D_0297.dcm)
+ok: [localhost] => (item=N2D_0257.dcm)
+ok: [localhost] => (item=N2D_0137.dcm)
+ok: [localhost] => (item=N2D_0191.dcm)
+ok: [localhost] => (item=N2D_0235.dcm)
+ok: [localhost] => (item=N2D_0101.dcm)
+ok: [localhost] => (item=N2D_0175.dcm)
+ok: [localhost] => (item=N2D_0153.dcm)
+ok: [localhost] => (item=N2D_0359.dcm)
+ok: [localhost] => (item=N2D_0012.dcm)
+ok: [localhost] => (item=N2D_0180.dcm)
+ok: [localhost] => (item=N2D_0134.dcm)
+ok: [localhost] => (item=N2D_0132.dcm)
+ok: [localhost] => (item=N2D_0227.dcm)
+ok: [localhost] => (item=N2D_0001.dcm)
+ok: [localhost] => (item=N2D_0007.dcm)
+ok: [localhost] => (item=N2D_0123.dcm)
+ok: [localhost] => (item=N2D_0028.dcm)
+ok: [localhost] => (item=N2D_0230.dcm)
+ok: [localhost] => (item=N2D_0312.dcm)
+ok: [localhost] => (item=N2D_0131.dcm)
+ok: [localhost] => (item=N2D_0108.dcm)
+ok: [localhost] => (item=N2D_0033.dcm)
+ok: [localhost] => (item=N2D_0282.dcm)
+ok: [localhost] => (item=N2D_0052.dcm)
+ok: [localhost] => (item=N2D_0360.dcm)
+ok: [localhost] => (item=N2D_0357.dcm)
+ok: [localhost] => (item=N2D_0245.dcm)
+ok: [localhost] => (item=N2D_0328.dcm)
+ok: [localhost] => (item=N2D_0079.dcm)
+ok: [localhost] => (item=N2D_0196.dcm)
+ok: [localhost] => (item=N2D_0244.dcm)
+ok: [localhost] => (item=N2D_0057.dcm)
+ok: [localhost] => (item=N2D_0379.dcm)
+ok: [localhost] => (item=N2D_0135.dcm)
+ok: [localhost] => (item=N2D_0270.dcm)
+ok: [localhost] => (item=N2D_0018.dcm)
+ok: [localhost] => (item=N2D_0223.dcm)
+ok: [localhost] => (item=N2D_0189.dcm)
+ok: [localhost] => (item=N2D_0375.dcm)
+ok: [localhost] => (item=N2D_0149.dcm)
+ok: [localhost] => (item=N2D_0155.dcm)
+ok: [localhost] => (item=N2D_0041.dcm)
+ok: [localhost] => (item=N2D_0065.dcm)
+ok: [localhost] => (item=N2D_0127.dcm)
+ok: [localhost] => (item=N2D_0097.dcm)
+ok: [localhost] => (item=N2D_0140.dcm)
+ok: [localhost] => (item=N2D_0029.dcm)
+ok: [localhost] => (item=N2D_0126.dcm)
+ok: [localhost] => (item=N2D_0351.dcm)
+ok: [localhost] => (item=N2D_0157.dcm)
+ok: [localhost] => (item=N2D_0014.dcm)
+ok: [localhost] => (item=N2D_0352.dcm)
+ok: [localhost] => (item=N2D_0258.dcm)
+ok: [localhost] => (item=N2D_0039.dcm)
+ok: [localhost] => (item=N2D_0362.dcm)
+ok: [localhost] => (item=N2D_0231.dcm)
+ok: [localhost] => (item=N2D_0103.dcm)
+ok: [localhost] => (item=N2D_0340.dcm)
+ok: [localhost] => (item=N2D_0381.dcm)
+ok: [localhost] => (item=N2D_0300.dcm)
+ok: [localhost] => (item=N2D_0163.dcm)
+ok: [localhost] => (item=N2D_0049.dcm)
+ok: [localhost] => (item=N2D_0376.dcm)
+ok: [localhost] => (item=N2D_0374.dcm)
+ok: [localhost] => (item=N2D_0310.dcm)
+ok: [localhost] => (item=N2D_0129.dcm)
+ok: [localhost] => (item=N2D_0181.dcm)
+ok: [localhost] => (item=N2D_0330.dcm)
+ok: [localhost] => (item=N2D_0138.dcm)
+ok: [localhost] => (item=N2D_0214.dcm)
+ok: [localhost] => (item=N2D_0190.dcm)
+ok: [localhost] => (item=N2D_0370.dcm)
+ok: [localhost] => (item=N2D_0285.dcm)
+ok: [localhost] => (item=N2D_0354.dcm)
+ok: [localhost] => (item=N2D_0068.dcm)
+ok: [localhost] => (item=N2D_0119.dcm)
+ok: [localhost] => (item=N2D_0173.dcm)
+ok: [localhost] => (item=N2D_0128.dcm)
+ok: [localhost] => (item=N2D_0084.dcm)
+ok: [localhost] => (item=N2D_0070.dcm)
+ok: [localhost] => (item=N2D_0382.dcm)
+ok: [localhost] => (item=N2D_0053.dcm)
+ok: [localhost] => (item=N2D_0298.dcm)
+ok: [localhost] => (item=N2D_0208.dcm)
+ok: [localhost] => (item=N2D_0120.dcm)
+ok: [localhost] => (item=N2D_0016.dcm)
+ok: [localhost] => (item=N2D_0356.dcm)
+ok: [localhost] => (item=N2D_0212.dcm)
+ok: [localhost] => (item=N2D_0291.dcm)
+ok: [localhost] => (item=N2D_0088.dcm)
+ok: [localhost] => (item=N2D_0292.dcm)
+ok: [localhost] => (item=N2D_0195.dcm)
+ok: [localhost] => (item=N2D_0051.dcm)
+ok: [localhost] => (item=N2D_0266.dcm)
+ok: [localhost] => (item=N2D_0289.dcm)
+ok: [localhost] => (item=N2D_0071.dcm)
+ok: [localhost] => (item=N2D_0199.dcm)
+ok: [localhost] => (item=N2D_0383.dcm)
+ok: [localhost] => (item=N2D_0302.dcm)
+ok: [localhost] => (item=N2D_0341.dcm)
+ok: [localhost] => (item=N2D_0116.dcm)
+ok: [localhost] => (item=N2D_0059.dcm)
+ok: [localhost] => (item=N2D_0062.dcm)
+ok: [localhost] => (item=N2D_0085.dcm)
+ok: [localhost] => (item=N2D_0056.dcm)
+ok: [localhost] => (item=N2D_0048.dcm)
+ok: [localhost] => (item=N2D_0311.dcm)
+ok: [localhost] => (item=N2D_0210.dcm)
+ok: [localhost] => (item=N2D_0186.dcm)
+ok: [localhost] => (item=N2D_0219.dcm)
+ok: [localhost] => (item=N2D_0372.dcm)
+ok: [localhost] => (item=N2D_0363.dcm)
+ok: [localhost] => (item=N2D_0308.dcm)
+ok: [localhost] => (item=N2D_0114.dcm)
+ok: [localhost] => (item=N2D_0239.dcm)
+ok: [localhost] => (item=N2D_0288.dcm)
+ok: [localhost] => (item=N2D_0229.dcm)
+ok: [localhost] => (item=N2D_0271.dcm)
+ok: [localhost] => (item=N2D_0254.dcm)
+ok: [localhost] => (item=N2D_0045.dcm)
+ok: [localhost] => (item=N2D_0150.dcm)
+ok: [localhost] => (item=N2D_0323.dcm)
+ok: [localhost] => (item=N2D_0143.dcm)
+ok: [localhost] => (item=N2D_0072.dcm)
+ok: [localhost] => (item=N2D_0327.dcm)
+ok: [localhost] => (item=N2D_0251.dcm)
+ok: [localhost] => (item=N2D_0325.dcm)
+ok: [localhost] => (item=N2D_0343.dcm)
+ok: [localhost] => (item=N2D_0268.dcm)
+ok: [localhost] => (item=N2D_0369.dcm)
+ok: [localhost] => (item=N2D_0067.dcm)
+ok: [localhost] => (item=N2D_0112.dcm)
+ok: [localhost] => (item=N2D_0050.dcm)
+ok: [localhost] => (item=N2D_0256.dcm)
+ok: [localhost] => (item=N2D_0156.dcm)
+ok: [localhost] => (item=N2D_0179.dcm)
+ok: [localhost] => (item=N2D_0010.dcm)
+ok: [localhost] => (item=N2D_0025.dcm)
+ok: [localhost] => (item=N2D_0130.dcm)
+ok: [localhost] => (item=N2D_0066.dcm)
+ok: [localhost] => (item=N2D_0236.dcm)
+ok: [localhost] => (item=N2D_0176.dcm)
+ok: [localhost] => (item=N2D_0124.dcm)
+ok: [localhost] => (item=N2D_0058.dcm)
+ok: [localhost] => (item=N2D_0017.dcm)
+ok: [localhost] => (item=N2D_0110.dcm)
+ok: [localhost] => (item=N2D_0061.dcm)
+ok: [localhost] => (item=N2D_0284.dcm)
+ok: [localhost] => (item=N2D_0250.dcm)
+ok: [localhost] => (item=N2D_0099.dcm)
+ok: [localhost] => (item=N2D_0259.dcm)
+ok: [localhost] => (item=N2D_0373.dcm)
+ok: [localhost] => (item=N2D_0204.dcm)
+ok: [localhost] => (item=N2D_0339.dcm)
+ok: [localhost] => (item=N2D_0267.dcm)
+ok: [localhost] => (item=N2D_0350.dcm)
+ok: [localhost] => (item=N2D_0347.dcm)
+ok: [localhost] => (item=N2D_0142.dcm)
+ok: [localhost] => (item=N2D_0316.dcm)
+ok: [localhost] => (item=N2D_0277.dcm)
+ok: [localhost] => (item=N2D_0093.dcm)
+ok: [localhost] => (item=N2D_0159.dcm)
+ok: [localhost] => (item=N2D_0275.dcm)
+ok: [localhost] => (item=N2D_0118.dcm)
+ok: [localhost] => (item=N2D_0329.dcm)
+ok: [localhost] => (item=N2D_0162.dcm)
+ok: [localhost] => (item=N2D_0021.dcm)
+ok: [localhost] => (item=N2D_0091.dcm)
+ok: [localhost] => (item=N2D_0367.dcm)
+ok: [localhost] => (item=N2D_0002.dcm)
+ok: [localhost] => (item=N2D_0319.dcm)
+ok: [localhost] => (item=N2D_0161.dcm)
+ok: [localhost] => (item=N2D_0222.dcm)
+ok: [localhost] => (item=N2D_0278.dcm)
+ok: [localhost] => (item=N2D_0194.dcm)
+ok: [localhost] => (item=N2D_0183.dcm)
+ok: [localhost] => (item=N2D_0336.dcm)
+ok: [localhost] => (item=N2D_0202.dcm)
+ok: [localhost] => (item=N2D_0037.dcm)
+ok: [localhost] => (item=N2D_0107.dcm)
+ok: [localhost] => (item=N2D_0335.dcm)
+ok: [localhost] => (item=N2D_0169.dcm)
+ok: [localhost] => (item=N2D_0102.dcm)
+ok: [localhost] => (item=N2D_0384.dcm)
+ok: [localhost] => (item=N2D_0054.dcm)
+ok: [localhost] => (item=N2D_0355.dcm)
+ok: [localhost] => (item=N2D_0358.dcm)
+ok: [localhost] => (item=N2D_0089.dcm)
+ok: [localhost] => (item=N2D_0366.dcm)
+ok: [localhost] => (item=N2D_0260.dcm)
+ok: [localhost] => (item=N2D_0113.dcm)
+ok: [localhost] => (item=N2D_0287.dcm)
+ok: [localhost] => (item=N2D_0309.dcm)
+ok: [localhost] => (item=N2D_0087.dcm)
+ok: [localhost] => (item=N2D_0146.dcm)
+ok: [localhost] => (item=N2D_0243.dcm)
+ok: [localhost] => (item=N2D_0184.dcm)
+ok: [localhost] => (item=N2D_0036.dcm)
+ok: [localhost] => (item=N2D_0063.dcm)
+ok: [localhost] => (item=N2D_0226.dcm)
+ok: [localhost] => (item=N2D_0125.dcm)
+ok: [localhost] => (item=N2D_0338.dcm)
+ok: [localhost] => (item=N2D_0092.dcm)
+ok: [localhost] => (item=N2D_0253.dcm)
+ok: [localhost] => (item=N2D_0299.dcm)
+ok: [localhost] => (item=N2D_0307.dcm)
+ok: [localhost] => (item=N2D_0274.dcm)
+ok: [localhost] => (item=N2D_0281.dcm)
+ok: [localhost] => (item=N2D_0221.dcm)
+ok: [localhost] => (item=N2D_0317.dcm)
+ok: [localhost] => (item=N2D_0344.dcm)
+ok: [localhost] => (item=N2D_0187.dcm)
+ok: [localhost] => (item=N2D_0115.dcm)
+ok: [localhost] => (item=N2D_0006.dcm)
+ok: [localhost] => (item=N2D_0217.dcm)
+ok: [localhost] => (item=N2D_0337.dcm)
+ok: [localhost] => (item=N2D_0080.dcm)
+ok: [localhost] => (item=N2D_0064.dcm)
+ok: [localhost] => (item=N2D_0106.dcm)
+ok: [localhost] => (item=N2D_0293.dcm)
+ok: [localhost] => (item=N2D_0249.dcm)
+ok: [localhost] => (item=N2D_0273.dcm)
+ok: [localhost] => (item=N2D_0111.dcm)
+ok: [localhost] => (item=N2D_0055.dcm)
+ok: [localhost] => (item=N2D_0166.dcm)
+ok: [localhost] => (item=N2D_0168.dcm)
+ok: [localhost] => (item=N2D_0197.dcm)
+ok: [localhost] => (item=N2D_0104.dcm)
+ok: [localhost] => (item=N2D_0365.dcm)
+ok: [localhost] => (item=N2D_0361.dcm)
+ok: [localhost] => (item=N2D_0241.dcm)
+ok: [localhost] => (item=N2D_0224.dcm)
+ok: [localhost] => (item=N2D_0076.dcm)
+ok: [localhost] => (item=N2D_0031.dcm)
+ok: [localhost] => (item=N2D_0209.dcm)
+ok: [localhost] => (item=N2D_0172.dcm)
+ok: [localhost] => (item=N2D_0086.dcm)
+ok: [localhost] => (item=N2D_0044.dcm)
+ok: [localhost] => (item=N2D_0318.dcm)
+ok: [localhost] => (item=N2D_0345.dcm)
+ok: [localhost] => (item=N2D_0290.dcm)
+ok: [localhost] => (item=N2D_0148.dcm)
+ok: [localhost] => (item=N2D_0232.dcm)
+ok: [localhost] => (item=N2D_0032.dcm)
+ok: [localhost] => (item=N2D_0272.dcm)
+ok: [localhost] => (item=N2D_0109.dcm)
+ok: [localhost] => (item=N2D_0096.dcm)
+ok: [localhost] => (item=N2D_0042.dcm)
+ok: [localhost] => (item=N2D_0015.dcm)
+ok: [localhost] => (item=N2D_0082.dcm)
+ok: [localhost] => (item=N2D_0280.dcm)
+ok: [localhost] => (item=N2D_0008.dcm)
+ok: [localhost] => (item=N2D_0326.dcm)
+ok: [localhost] => (item=N2D_0077.dcm)
+ok: [localhost] => (item=N2D_0160.dcm)
+ok: [localhost] => (item=N2D_0046.dcm)
+ok: [localhost] => (item=N2D_0185.dcm)
+ok: [localhost] => (item=N2D_0313.dcm)
+ok: [localhost] => (item=N2D_0198.dcm)
+ok: [localhost] => (item=N2D_0377.dcm)
+ok: [localhost] => (item=N2D_0324.dcm)
+ok: [localhost] => (item=N2D_0200.dcm)
+ok: [localhost] => (item=N2D_0133.dcm)
+ok: [localhost] => (item=N2D_0321.dcm)
+ok: [localhost] => (item=N2D_0154.dcm)
+ok: [localhost] => (item=N2D_0364.dcm)
+ok: [localhost] => (item=N2D_0265.dcm)
+ok: [localhost] => (item=N2D_0094.dcm)
+ok: [localhost] => (item=N2D_0026.dcm)
+ok: [localhost] => (item=N2D_0264.dcm)
+ok: [localhost] => (item=N2D_0371.dcm)
+ok: [localhost] => (item=N2D_0023.dcm)
+ok: [localhost] => (item=N2D_0368.dcm)
+ok: [localhost] => (item=N2D_0078.dcm)
+ok: [localhost] => (item=N2D_0234.dcm)
+ok: [localhost] => (item=N2D_0100.dcm)
+ok: [localhost] => (item=N2D_0205.dcm)
+ok: [localhost] => (item=N2D_0141.dcm)
+ok: [localhost] => (item=N2D_0081.dcm)
+ok: [localhost] => (item=N2D_0013.dcm)
+ok: [localhost] => (item=N2D_0303.dcm)
+ok: [localhost] => (item=N2D_0215.dcm)
+ok: [localhost] => (item=N2D_0237.dcm)
+ok: [localhost] => (item=N2D_0060.dcm)
+ok: [localhost] => (item=N2D_0349.dcm)
+ok: [localhost] => (item=N2D_0301.dcm)
+ok: [localhost] => (item=N2D_0294.dcm)
+ok: [localhost] => (item=N2D_0242.dcm)
+ok: [localhost] => (item=N2D_0240.dcm)
+ok: [localhost] => (item=N2D_0177.dcm)
+ok: [localhost] => (item=N2D_0095.dcm)
+ok: [localhost] => (item=N2D_0201.dcm)
+ok: [localhost] => (item=N2D_0261.dcm)
+ok: [localhost] => (item=N2D_0167.dcm)
+ok: [localhost] => (item=N2D_0147.dcm)
+ok: [localhost] => (item=N2D_0083.dcm)
+ok: [localhost] => (item=N2D_0047.dcm)
+ok: [localhost] => (item=N2D_0211.dcm)
+ok: [localhost] => (item=N2D_0034.dcm)
+ok: [localhost] => (item=N2D_0192.dcm)
+ok: [localhost] => (item=N2D_0069.dcm)
+ok: [localhost] => (item=N2D_0304.dcm)
+ok: [localhost] => (item=N2D_0165.dcm)
+ok: [localhost] => (item=N2D_0286.dcm)
+ok: [localhost] => (item=N2D_0035.dcm)
+ok: [localhost] => (item=N2D_0182.dcm)
+ok: [localhost] => (item=N2D_0262.dcm)
+ok: [localhost] => (item=N2D_0305.dcm)
+ok: [localhost] => (item=N2D_0207.dcm)
+ok: [localhost] => (item=N2D_0040.dcm)
+ok: [localhost] => (item=N2D_0238.dcm)
+ok: [localhost] => (item=N2D_0331.dcm)
+ok: [localhost] => (item=N2D_0296.dcm)
+ok: [localhost] => (item=N2D_0105.dcm)
+ok: [localhost] => (item=N2D_0203.dcm)
+ok: [localhost] => (item=N2D_0022.dcm)
+ok: [localhost] => (item=N2D_0152.dcm)
+ok: [localhost] => (item=N2D_0269.dcm)
+ok: [localhost] => (item=N2D_0151.dcm)
+ok: [localhost] => (item=N2D_0158.dcm)
+ok: [localhost] => (item=N2D_0320.dcm)
+ok: [localhost] => (item=N2D_0117.dcm)
+ok: [localhost] => (item=N2D_0011.dcm)
+ok: [localhost] => (item=N2D_0024.dcm)
+ok: [localhost] => (item=N2D_0315.dcm)
+ok: [localhost] => (item=N2D_0020.dcm)
+ok: [localhost] => (item=N2D_0346.dcm)
+ok: [localhost] => (item=N2D_0263.dcm)
+ok: [localhost] => (item=N2D_0030.dcm)
+ok: [localhost] => (item=N2D_0145.dcm)
+ok: [localhost] => (item=N2D_0378.dcm)
+ok: [localhost] => (item=N2D_0248.dcm)
+ok: [localhost] => (item=N2D_0225.dcm)
+ok: [localhost] => (item=N2D_0233.dcm)
+ok: [localhost] => (item=N2D_0171.dcm)
+ok: [localhost] => (item=N2D_0353.dcm)
+ok: [localhost] => (item=N2D_0314.dcm)
+ok: [localhost] => (item=N2D_0295.dcm)
+ok: [localhost] => (item=N2D_0332.dcm)
+ok: [localhost] => (item=N2D_0188.dcm)
+
+TASK [sample_data : Count accepted instances] **********************************
+ok: [localhost]
+
+TASK [sample_data : Report upload result] **************************************
+ok: [localhost] => 
+    msg: 'Uploaded to test Orthanc: 384 accepted of 384 candidate files.'
+
+TASK [sample_data : Assert at least one instance was accepted by Orthanc] ******
+ok: [localhost] => 
+    changed: false
+    msg: All assertions passed
+
+TASK [sample_data : List study UUIDs in the test Orthanc] **********************
+ok: [localhost]
+
+TASK [sample_data : C-STORE-push each study to the ChRIS modality (oxidicom)] ***
+ok: [localhost] => (item=study 049542bf-43e00dce-1d43f731-9c02960e-d311ff1f)
+
+TASK [sample_data : Report push result] ****************************************
+ok: [localhost] => 
+    msg: Pushed 1 study(ies) to oxidicom (AET ChRIS). CUBE will ingest asynchronously;
+        verify role checks /api/v1/pacs/.
+
+TASK [sample_data : Wait until CUBE has registered the pushed series (deterministic, not a fixed sleep)] ***
+ok: [localhost]
+
+TASK [sample_data : Report ingestion confirmed] ********************************
+ok: [localhost] => 
+    msg: CUBE registered the pushed series (ingest path confirmed before overlay/backfill).
+
+TASK [dicomweb_app : Report integration seam status] ***************************
+ok: [localhost] => 
+    msg: dicomweb_overlay_enabled=true. Overlaying + wiring L2 code into the running CUBE
+        + worker containers.
+
+TASK [dicomweb_app : Describe the seam (always shown, for the stakeholder walk-through)] ***
+ok: [localhost] => 
+    msg:
+    - 'INTEGRATION SEAM (roles/dicomweb_app):'
+    - '  source on host : /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2'
+    - '  target in image: /opt/app-root/src/dicomweb/'
+    - '  services touched: chris (API) + worker (Celery indexer)'
+    - '  steps: copy code -> wire INSTALLED_APPS + urls (as root) -> migrate -> restart'
+    - '  endpoints exposed: /dicom-web/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)'
+    - '  NOTE: dev overlay only. Production rebuilds the cube image.'
+
+TASK [dicomweb_app : Assert the L2 source tree exists on the host] *************
+ok: [localhost]
+
+TASK [dicomweb_app : Fail clearly if L2 source is missing] *********************
+skipping: [localhost]
+
+TASK [dicomweb_app : Resolve the running CUBE (chris) container id] ************
+ok: [localhost]
+
+TASK [dicomweb_app : Resolve the running worker container id] ******************
+ok: [localhost]
+
+TASK [dicomweb_app : Copy L2 app + wiring patcher into the chris and worker containers] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. c0c9d9006fff71bd38c73f7036258f5811cac551b1602bc6b2530d101fd037cb:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. e051b826e36ff650771fc362cae0afb6a3ec278c870acfd605295c5f0b00da94:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py c0c9d9006fff71bd38c73f7036258f5811cac551b1602bc6b2530d101fd037cb:/tmp/overlay_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py e051b826e36ff650771fc362cae0afb6a3ec278c870acfd605295c5f0b00da94:/tmp/overlay_patch.py)
+
+TASK [dicomweb_app : Copy the Phase A pacsfiles migration + model patcher into chris + worker] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py c0c9d9006fff71bd38c73f7036258f5811cac551b1602bc6b2530d101fd037cb:/opt/app-root/src/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py e051b826e36ff650771fc362cae0afb6a3ec278c870acfd605295c5f0b00da94:/opt/app-root/src/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a_pacsfiles_patch.py c0c9d9006fff71bd38c73f7036258f5811cac551b1602bc6b2530d101fd037cb:/tmp/phase_a_pacsfiles_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a_pacsfiles_patch.py e051b826e36ff650771fc362cae0afb6a3ec278c870acfd605295c5f0b00da94:/tmp/phase_a_pacsfiles_patch.py)
+
+TASK [dicomweb_app : Apply the Phase A pacsfiles model fields (chris + worker)] ***
+changed: [localhost] => (item=chris)
+changed: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Install the L2 app's extra Python deps (pydicom) into chris + worker] ***
+ok: [localhost] => (item=chris)
+ok: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Wire 'dicomweb' into INSTALLED_APPS + urls (chris and worker)] ***
+changed: [localhost] => (item=chris)
+changed: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Run Django migrations inside the CUBE container] **********
+changed: [localhost]
+
+TASK [dicomweb_app : Show migrate output] **************************************
+ok: [localhost] => 
+    dicomweb_migrate.stdout_lines:
+    - 'Operations to perform:'
+    - '  Apply all migrations: admin, auth, authtoken, collectionjson, contenttypes, core,
+        dicomweb, django_celery_beat, feeds, pacsfiles, pipelines, plugininstances, plugins,
+        sessions, userfiles, users, workflows'
+    - 'Running migrations:'
+    - '  Applying pacsfiles.0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more...
+        OK'
+    - '  Applying dicomweb.0001_initial... OK'
+    - '  Applying dicomweb.0002_pacsstudy... OK'
+    - '  Applying dicomweb.0003_pg_trgm... OK'
+
+TASK [dicomweb_app : Flush handlers now (restart chris + worker so code is re-imported)] ***
+
+RUNNING HANDLER [dicomweb_app : restart cube services] *************************
+changed: [localhost]
+
+TASK [dicomweb_app : Re-wait for CUBE health after restart] ********************
+ok: [localhost]
+
+TASK [dicomweb_app : Backfill the DICOMweb index for already-ingested PACS data] ***
+changed: [localhost]
+
+TASK [dicomweb_app : Show backfill output] *************************************
+ok: [localhost] => 
+    dicomweb_backfill.stdout_lines:
+    - Matched 384 .dcm file(s).
+    - indexed 384 file(s).
+
+TASK [verify : Locate the smoke script] ****************************************
+ok: [localhost]
+
+TASK [verify : Ensure smoke script is executable] ******************************
+ok: [localhost]
+
+TASK [verify : Run smoke tests] ************************************************
+ok: [localhost]
+
+TASK [verify : Smoke-test output] **********************************************
+ok: [localhost] => 
+    verify_run.stdout_lines:
+    - ==============================================================
+    - ' DICOMweb-on-CUBE spike :: smoke test'
+    - ' CUBE    : http://localhost:8000'
+    - ' Orthanc : http://localhost:8142'
+    - ' PACS id : SPIKEORTHANC'
+    - ' DICOMweb base: http://localhost:8000/dicom-web/pacs/SPIKEORTHANC'
+    - ' expect dicomweb endpoints: true'
+    - ==============================================================
+    - -- Core CUBE --------------------------------------------------
+    - "  [\e[32mPASS\e[0m] CUBE API root /api/v1/ (200)"
+    - "  [\e[32mPASS\e[0m] CUBE auth-token (200)"
+    - "  [\e[33mSKIP\e[0m] CUBE /api/v1/pacs/ (500 -- pfdcm unreachable; upstream quirk,
+        not DICOMweb)"
+    - "  [\e[32mPASS\e[0m] CUBE has ingested PACS series (>=1 SeriesInstanceUID seen)"
+    - -- Test Orthanc -----------------------------------------------
+    - "  [\e[32mPASS\e[0m] Orthanc /system (200)"
+    - "  [\e[32mPASS\e[0m] Orthanc DicomWeb plugin loaded (200)"
+    - "  [\e[32mPASS\e[0m] Orthanc QIDO-RS /dicom-web/studies (200)"
+    - -- CUBE DICOMweb (L2 endpoints) -------------------------------
+    - "  [\e[32mPASS\e[0m] QIDO-RS http://localhost:8000/dicom-web/pacs/SPIKEORTHANC/studies
+        (200)"
+    - "  [\e[32mPASS\e[0m] WADO-RS http://localhost:8000/dicom-web/pacs/SPIKEORTHANC/studies/<uid>/metadata
+        (200)"
+    - "  [\e[32mPASS\e[0m] STOW-RS endpoint present (POST returned 400)"
+    - ==============================================================
+    - " Result: \e[32m9\e[0m pass, \e[31m0\e[0m fail, \e[33m1\e[0m skip"
+    - ==============================================================
+
+TASK [verify : Locate the API test suite] **************************************
+ok: [localhost]
+
+TASK [verify : Ensure API test suite is executable] ****************************
+ok: [localhost]
+
+TASK [verify : Run API test suite (QIDO/WADO/STOW + auth)] *********************
+ok: [localhost]
+
+TASK [verify : API test output] ************************************************
+ok: [localhost] => 
+    verify_api.stdout_lines:
+    - ==============================================================================
+    - ' DICOMweb-on-CUBE :: API test suite   (PACS=SPIKEORTHANC)'
+    - ' base: http://localhost:8000    python: /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/.venv/bin/python'
+    - ==============================================================================
+    - '  RESULT  METHOD  ENDPOINT                                             ASSERT'
+    - ''
+    - == CUBE REST API + auth ==
+    - '  [PASS]  GET     /api/v1/ (basic auth)                                200'
+    - '  [PASS]  GET     /pacs/series/ (no auth)                              401 (protected)'
+    - '  [PASS]  POST    /auth-token/                                         200 (issues
+        token)'
+    - '  [PASS]  GET     /pacs/series/ (basic auth)                           >=1 ingested
+        series (n=3)'
+    - ''
+    - == Authenticated paths on DICOMweb (Basic + Token) ==
+    - '  [PASS]  GET     /studies (Basic auth)                                200'
+    - '  [PASS]  GET     /studies (Token auth)                                200'
+    - '  [PASS]  GET     /studies (no auth)                                   401 (rejected)'
+    - '  [PASS]  GET     /studies (bad creds)                                 401 (rejected)'
+    - ''
+    - == QIDO-RS (query) ==
+    - '  [PASS]  GET     /studies                                             200 dicom+json'
+    - '  [PASS]  GET     /studies                                             body: 0020000D
+        present'
+    - '  [PASS]  GET     /studies (Accept json)                               200 (json==dicom+json)'
+    - '  [PASS]  GET     /studies?ModalitiesInStudy=MR                        200 filtered'
+    - '  [PASS]  GET     /studies?PatientName=*                               200 (wildcard)'
+    - '  [PASS]  GET     /studies/<uid>/series                                200'
+    - '  [PASS]  GET     /studies/<uid>/instances                             200'
+    - '  [PASS]  GET     /series (cross-study)                                200'
+    - '  [PASS]  GET     /instances (cross-study)                             200'
+    - '  [PASS]  GET     /studies?StudyDate=- (bad)                           400'
+    - '  [PASS]  GET     /pacs/NOPE/studies                                   404 (unknown
+        PACS)'
+    - ''
+    - == WADO-RS (retrieve) ==
+    - '  [PASS]  GET     /studies/<uid>/metadata                              200 dicom+json'
+    - '  [PASS]  GET     /studies/<uid>/metadata                              body: 384
+        instances'
+    - '  [PASS]  GET     .../series/<s>/metadata                              200'
+    - '  [PASS]  GET     .../instances/<sop>/metadata                         200'
+    - '  [PASS]  GET     .../instances/<sop>                                  multipart/related'
+    - '  [PASS]  GET     .../frames/1                                         200 (native
+        200 / encap 501)'
+    - ''
+    - == Data integrity (full ingested set processed + stored correctly) ==
+    - '  [PASS]  GET     source Orthanc /instances                            source set
+        = 384 instances'
+    - '  [PASS]  GET     QIDO instance count (limit)                          384 == source
+        384 (all ingested+indexed)'
+    - '  [PASS]  GET     WADO metadata count                                  384 == source
+        384 (all retrievable)'
+    - '  [PASS]  GET     3D volume: single series                             1 series
+        holds all 384 slices'
+    - '  [PASS]  GET     3D volume: single-frame slices                       every instance
+        NumberOfFrames<=1 (slice stack, not multi-frame)'
+    - '  [PASS]  GET     3D volume: complete slice set                        InstanceNumbers
+        1..384, 384 unique, gap-free (no missing slice)'
+    - '  [PASS]  GET     WADO object byte-integrity                           valid DICOM,
+        SOPInstanceUID matches, PixelData present (211976B)'
+    - ''
+    - == STOW-RS (store) ==
+    - '  [PASS]  POST    /studies (fresh object)                              200, ReferencedSOP=1
+        Failed=0'
+    - '  [PASS]  GET     /studies?StudyInstanceUID=<new>                      round-trip:
+        stored study queryable'
+    - '  [PASS]  POST    STOW multipart series (4 parts/1 request)            200, ReferencedSOP=4
+        (all stored)'
+    - '  [PASS]  GET     QIDO new series                                      1 series,
+        4 instances (multipart series ingested)'
+    - '  [PASS]  POST    /studies (empty body)                                400 (rejects
+        cleanly)'
+    - '  [PASS]  POST    /studies (bad media type)                            415'
+    - ''
+    - '== Multi-frame representation (1x384: the SAME volume as one object) =='
+    - '  [PASS]  POST    STOW multi-frame object                              200, stored
+        1 instance carrying 384 frames'
+    - '  [PASS]  GET     QIDO: 1x384 (one instance)                           1 instance,
+        NumberOfFrames=384 (whole volume in one object)'
+    - '  [PASS]  GET     WADO /frames/1 + /frames/384                         200, each
+        frame = 210432 bytes (native slice extracted)'
+    - '  [PASS]  GET     WADO /frames/385 (out of range)                      404'
+    - ''
+    - == Multiple series (cross-study/series handling) ==
+    - '  [PASS]  GET     /series (cross-study)                                4 series
+        in catalog (multiple-series handling)'
+    - '  [PASS]  GET     /studies (catalog)                                   4 studies
+        in catalog'
+    - ''
+    - ==============================================================================
+    - ' API tests: 44 passed, 0 failed (of 44)'
+    - ==============================================================================
+
+PLAY RECAP *********************************************************************
+localhost                  : ok=68   changed=11   unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+

@@ -1,0 +1,176 @@
+---
+# Load sample DICOM into the test Orthanc, then C-STORE-push it to oxidicom so
+# CUBE ingests it (oxidicom -> /data -> RabbitMQ job -> CUBE worker -> PACSSeries
+# rows). Source is configurable (download / local_dir / none).
+
+- name: Skip sample-data loading
+  ansible.builtin.meta: end_play
+  when: sample_data_mode == "none"
+
+- name: Ensure sample-data workdir exists
+  ansible.builtin.file:
+    path: "{{ sample_data_workdir }}"
+    state: directory
+    mode: "0755"
+
+# --- Acquire the DICOM files ------------------------------------------------
+- name: Download sample DICOM archive
+  ansible.builtin.get_url:
+    url: "{{ sample_data_url }}"
+    dest: "{{ sample_data_workdir }}/sample.zip"
+    mode: "0644"
+  when: sample_data_mode == "download"
+  register: sample_dl
+
+- name: Unpack sample DICOM archive
+  ansible.builtin.unarchive:
+    src: "{{ sample_data_workdir }}/sample.zip"
+    dest: "{{ sample_data_workdir }}"
+    remote_src: true
+  when: sample_data_mode == "download"
+
+- name: Resolve the directory to scan for .dcm files
+  ansible.builtin.set_fact:
+    sample_scan_dir: >-
+      {{ sample_data_local_dir if sample_data_mode == 'local_dir'
+         else sample_data_workdir }}
+
+- name: Find DICOM files to upload
+  # Match common DICOM extensions AND extensionless files (many real datasets
+  # ship .dcm-less). We over-match then let Orthanc reject non-DICOM with 4xx.
+  ansible.builtin.find:
+    paths: "{{ sample_scan_dir }}"
+    recurse: true
+    patterns:
+      - "*.dcm"
+      - "*.DCM"
+      - "*.ima"
+      - "*.IMA"
+  register: sample_dcm_strict
+
+- name: Fall back to scanning all files if no *.dcm matched
+  ansible.builtin.find:
+    paths: "{{ sample_scan_dir }}"
+    recurse: true
+    file_type: file
+  register: sample_dcm_all
+  when: sample_dcm_strict.matched | int == 0
+
+- name: Select the file list to upload
+  ansible.builtin.set_fact:
+    sample_files: >-
+      {{ (sample_dcm_strict.files if (sample_dcm_strict.matched | int) > 0
+          else sample_dcm_all.files) | map(attribute='path') | list }}
+
+- name: Assert we have at least one candidate file
+  ansible.builtin.assert:
+    that: sample_files | length > 0
+    fail_msg: >-
+      No candidate DICOM files found under {{ sample_scan_dir }}.
+      Set sample_data_mode=local_dir and sample_data_local_dir=<path>, or fix
+      sample_data_url.
+
+# --- Upload to the test Orthanc via REST POST /instances --------------------
+# Orthanc returns 200 for an accepted DICOM, 400 for a non-DICOM file -- so we
+# tolerate 400 (skips README files etc. in the archive) and count successes.
+- name: Upload candidate files to test Orthanc (POST /instances)
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/instances"
+    method: POST
+    headers:
+      Content-Type: "application/dicom"
+    src: "{{ item }}"
+    remote_src: true
+    status_code: [200, 400, 415]
+    return_content: true
+  loop: "{{ sample_files }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  register: sample_uploads
+  changed_when: false
+
+- name: Count accepted instances
+  ansible.builtin.set_fact:
+    sample_accepted: >-
+      {{ sample_uploads.results | selectattr('status', 'equalto', 200) | list | length }}
+
+- name: Report upload result
+  ansible.builtin.debug:
+    msg: >-
+      Uploaded to test Orthanc: {{ sample_accepted }} accepted
+      of {{ sample_files | length }} candidate files.
+
+- name: Assert at least one instance was accepted by Orthanc
+  ansible.builtin.assert:
+    that: sample_accepted | int > 0
+    fail_msg: >-
+      Orthanc accepted 0 instances. The sample source likely contains no valid
+      DICOM. Point sample_data_local_dir at a directory of real .dcm files.
+
+# --- Push everything Orthanc holds to oxidicom (AET ChRIS) ------------------
+- name: List study UUIDs in the test Orthanc
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/studies"
+    method: GET
+    status_code: [200]
+    return_content: true
+  register: orthanc_studies
+  when: sample_data_push_to_cube | bool
+
+- name: C-STORE-push each study to the ChRIS modality (oxidicom)
+  # POST /modalities/ChRIS/store with the study UUID body triggers a C-STORE SCU
+  # from Orthanc to oxidicom:11111 (AET ChRIS), which writes into CUBE storage
+  # and fires the registration job.
+  # https://orthanc.uclouvain.be/book/users/rest.html#sending-resources-to-remote-modalities
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/modalities/ChRIS/store"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      Resources: ["{{ item }}"]
+      Synchronous: true
+    status_code: [200]
+    return_content: true
+  loop: "{{ orthanc_studies.json }}"
+  loop_control:
+    label: "study {{ item }}"
+  register: orthanc_push
+  when: sample_data_push_to_cube | bool
+
+- name: Report push result
+  ansible.builtin.debug:
+    msg: >-
+      Pushed {{ orthanc_studies.json | length }} study(ies) to oxidicom
+      (AET ChRIS). CUBE will ingest asynchronously; verify role checks
+      /api/v1/pacs/.
+  when: sample_data_push_to_cube | bool
+
+# Ingestion is async (oxidicom -> NATS -> CUBE worker -> PACSSeries/PACSFile
+# rows). A fixed sleep races on a cold start, leaving the overlay's backfill with
+# nothing to index. Poll the ingested-series endpoint until CUBE has registered
+# at least one series, so the rest of the play is deterministic.
+- name: Wait until CUBE has registered the pushed series (deterministic, not a fixed sleep)
+  ansible.builtin.uri:
+    url: "{{ cube_base_url }}/api/v1/pacs/series/"
+    method: GET
+    user: "{{ cube_user }}"
+    password: "{{ cube_password }}"
+    force_basic_auth: true
+    headers:
+      Accept: application/json
+    status_code: [200]
+    return_content: true
+  register: sample_series_check
+  retries: 30
+  delay: 4
+  until:
+    - sample_series_check.status == 200
+    - "'SeriesInstanceUID' in (sample_series_check.content | default(''))"
+  when: sample_data_push_to_cube | bool
+
+- name: Report ingestion confirmed
+  ansible.builtin.debug:
+    msg: "CUBE registered the pushed series (ingest path confirmed before overlay/backfill)."
+  when: sample_data_push_to_cube | bool

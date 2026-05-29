@@ -1,0 +1,135 @@
+
+PLAY [Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)] ***********
+
+TASK [Gathering Facts] *********************************************************
+ok: [localhost]
+
+TASK [dicomweb_app : Report integration seam status] ***************************
+ok: [localhost] => 
+    msg: dicomweb_overlay_enabled=true. Overlaying + wiring L2 code into the running CUBE
+        + worker containers.
+
+TASK [dicomweb_app : Describe the seam (always shown, for the stakeholder walk-through)] ***
+ok: [localhost] => 
+    msg:
+    - 'INTEGRATION SEAM (roles/dicomweb_app):'
+    - '  source on host : /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2'
+    - '  target in image: /opt/app-root/src/dicomweb/'
+    - '  services touched: chris (API) + worker (Celery indexer)'
+    - '  steps: copy code -> wire INSTALLED_APPS + urls (as root) -> migrate -> restart'
+    - '  endpoints exposed: /dicom-web/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)'
+    - '  NOTE: dev overlay only. Production rebuilds the cube image.'
+
+TASK [dicomweb_app : Assert the L2 source tree exists on the host] *************
+ok: [localhost]
+
+TASK [dicomweb_app : Fail clearly if L2 source is missing] *********************
+skipping: [localhost]
+
+TASK [dicomweb_app : Resolve the running CUBE (chris) container id] ************
+ok: [localhost]
+
+TASK [dicomweb_app : Resolve the running worker container id] ******************
+ok: [localhost]
+
+TASK [dicomweb_app : Copy L2 app + wiring patcher into the chris and worker containers] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/tmp/overlay_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/tmp/overlay_patch.py)
+
+TASK [dicomweb_app : Copy the Phase A pacsfiles migration + model patcher into chris + worker] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/opt/app-root/src/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/opt/app-root/src/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a_pacsfiles_patch.py f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/tmp/phase_a_pacsfiles_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/phase_a_pacsfiles_patch.py c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/tmp/phase_a_pacsfiles_patch.py)
+
+TASK [dicomweb_app : Apply the Phase A pacsfiles model fields (chris + worker)] ***
+changed: [localhost] => (item=chris)
+changed: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Install the L2 app's extra Python deps (pydicom) into chris + worker] ***
+ok: [localhost] => (item=chris)
+ok: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Wire 'dicomweb' into INSTALLED_APPS + urls (chris and worker)] ***
+changed: [localhost] => (item=chris)
+changed: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Run Django migrations inside the CUBE container] **********
+ok: [localhost]
+
+TASK [dicomweb_app : Show migrate output] **************************************
+ok: [localhost] => 
+    dicomweb_migrate.stdout_lines:
+    - 'Operations to perform:'
+    - '  Apply all migrations: admin, auth, authtoken, collectionjson, contenttypes, core,
+        dicomweb, django_celery_beat, feeds, pacsfiles, pipelines, plugininstances, plugins,
+        sessions, userfiles, users, workflows'
+    - 'Running migrations:'
+    - '  No migrations to apply.'
+    - '  Your models in app(s): ''dicomweb'' have changes that are not yet reflected in
+        a migration, and so won''t be applied.'
+    - '  Run ''manage.py makemigrations'' to make new migrations, and then re-run ''manage.py
+        migrate'' to apply them.'
+
+TASK [dicomweb_app : Flush handlers now (restart chris + worker so code is re-imported)] ***
+
+RUNNING HANDLER [dicomweb_app : restart cube services] *************************
+changed: [localhost]
+
+TASK [dicomweb_app : Re-wait for CUBE health after restart] ********************
+ok: [localhost]
+
+TASK [dicomweb_app : Backfill the DICOMweb index for already-ingested PACS data] ***
+changed: [localhost]
+
+TASK [dicomweb_app : Show backfill output] *************************************
+ok: [localhost] => 
+    dicomweb_backfill.stdout_lines:
+    - Matched 384 .dcm file(s).
+    - indexed 384 file(s).
+
+TASK [verify : Locate the smoke script] ****************************************
+ok: [localhost]
+
+TASK [verify : Ensure smoke script is executable] ******************************
+ok: [localhost]
+
+TASK [verify : Run smoke tests] ************************************************
+ok: [localhost]
+
+TASK [verify : Smoke-test output] **********************************************
+ok: [localhost] => 
+    verify_run.stdout_lines:
+    - ==============================================================
+    - ' DICOMweb-on-CUBE spike :: smoke test'
+    - ' CUBE    : http://localhost:8000'
+    - ' Orthanc : http://localhost:8142'
+    - ' PACS id : SPIKEORTHANC'
+    - ' DICOMweb base: http://localhost:8000/dicom-web/pacs/SPIKEORTHANC'
+    - ' expect dicomweb endpoints: true'
+    - ==============================================================
+    - -- Core CUBE --------------------------------------------------
+    - "  [\e[32mPASS\e[0m] CUBE API root /api/v1/ (200)"
+    - "  [\e[32mPASS\e[0m] CUBE auth-token (200)"
+    - "  [\e[33mSKIP\e[0m] CUBE /api/v1/pacs/ (500 -- pfdcm unreachable; upstream quirk,
+        not DICOMweb)"
+    - "  [\e[32mPASS\e[0m] CUBE has ingested PACS series (>=1 SeriesInstanceUID seen)"
+    - -- Test Orthanc -----------------------------------------------
+    - "  [\e[32mPASS\e[0m] Orthanc /system (200)"
+    - "  [\e[32mPASS\e[0m] Orthanc DicomWeb plugin loaded (200)"
+    - "  [\e[32mPASS\e[0m] Orthanc QIDO-RS /dicom-web/studies (200)"
+    - -- CUBE DICOMweb (L2 endpoints) -------------------------------
+    - "  [\e[32mPASS\e[0m] QIDO-RS http://localhost:8000/dicom-web/pacs/SPIKEORTHANC/studies
+        (200)"
+    - "  [\e[32mPASS\e[0m] WADO-RS http://localhost:8000/dicom-web/pacs/SPIKEORTHANC/studies/<uid>/metadata
+        (200)"
+    - "  [\e[32mPASS\e[0m] STOW-RS endpoint present (POST returned 400)"
+    - ==============================================================
+    - " Result: \e[32m9\e[0m pass, \e[31m0\e[0m fail, \e[33m1\e[0m skip"
+    - ==============================================================
+
+PLAY RECAP *********************************************************************
+localhost                  : ok=21   changed=6    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+

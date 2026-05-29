@@ -1,0 +1,166 @@
+---
+# =============================================================================
+# group_vars/all.yml -- single source of truth for the spike deployment.
+#
+# Every pinned version, port, URL, path, and toggle lives here so the roles stay
+# declarative. Versions are pinned to the EXACT tags shipped by
+# FNNDSC/miniChRIS-docker (master, transcribed 2026-05-28) so the wrapper never
+# drifts from the upstream stack it wraps.
+#   docker-compose.yml: https://github.com/FNNDSC/miniChRIS-docker
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Workspace layout
+# ---------------------------------------------------------------------------
+# Where we stage helper files (orthanc config, sample data). Kept out of the
+# repo tree so `down -v` wipes nothing we care about.
+deploy_workdir: "{{ ansible_env.HOME }}/.cache/dicomweb-spike"
+# miniChRIS-docker is vendored INSIDE this bundle under operations/vendor/ by
+# tooling/bootstrap.sh (pinned commit 4d689ba), not cloned at runtime by the
+# play. minichris.sh runs in place here; its runtime files (.env, etc.) are
+# covered by the upstream .gitignore, so the vendored tree stays clean.
+# Resolved relative to the playbook dir so the bundle is self-contained and
+# location-independent (operations/ansible/../vendor/miniChRIS-docker).
+minichris_dir: "{{ playbook_dir }}/../vendor/miniChRIS-docker"
+
+# Absolute path to this spike repo's deploy tree, derived from the playbook dir.
+# Used to locate the L2 implementation overlay and sample-data assets.
+repo_root: "{{ playbook_dir }}/../.."
+
+# ---------------------------------------------------------------------------
+# miniChRIS-docker (the stack we WRAP, never fork)
+# ---------------------------------------------------------------------------
+# Vendored as a submodule at deploy/vendor/miniChRIS-docker, pinned to commit
+# 4d689ba (the version validated for this spike). Bump the pin by checking out a
+# new commit in the submodule and committing the gitlink. Upstream pins its
+# service image tags inside docker-compose.yml.
+minichris_compose_project: "minichris"    # matches the `name:` overrides upstream
+
+# Docker Compose profiles. The bare default profile is CUBE + compute only; the
+# DICOM ingest pipeline (orthanc + pfdcm + oxidicom + nats) is gated behind the
+# `pacs` profile. We MUST enable `pacs` to have a PACS receiver at all.
+# https://github.com/FNNDSC/miniChRIS-docker  (Compose profiles section)
+minichris_profiles:
+  - pacs
+
+# Image pins inside upstream compose (informational; the compose file is
+# authoritative). Listed so the meeting can cite exact versions.
+cube_image: "ghcr.io/fnndsc/cube:6.11.0"
+oxidicom_image: "ghcr.io/fnndsc/oxidicom:3.0.0"
+bundled_orthanc_image: "docker.io/jodogne/orthanc-plugins:1.12.7"
+nats_image: "docker.io/library/nats:2.11.4-alpine"
+postgres_image: "docker.io/library/postgres:17"
+rabbitmq_image: "docker.io/library/rabbitmq:3"
+
+# The CUBE service name inside compose. DICOMweb endpoints attach here (:8000).
+cube_service_name: "chris"
+cube_migrate_service_name: "db_migrate"
+cube_worker_service_name: "worker"
+
+# ---------------------------------------------------------------------------
+# CUBE access (PUBLIC dev defaults from miniChRIS secrets.env -- override for
+# any real deployment; see README Caveats).
+# ---------------------------------------------------------------------------
+cube_host: "localhost"
+# Host port CUBE is published on. miniChRIS hardcodes 8000:8000 in its compose;
+# we remap it via the tracked override compose-overrides/cube-port.yml (chained
+# through COMPOSE_FILE in site.yml, driven by the CUBE_HOST_PORT env). Change
+# this if 8000 is already taken on the host (the original 8000 collision).
+cube_host_port: 8000
+cube_port: "{{ cube_host_port }}"
+cube_base_url: "http://{{ cube_host }}:{{ cube_port }}"
+cube_api_url: "{{ cube_base_url }}/api/v1/"
+cube_user: "chris"
+cube_password: "chris1234"
+
+# How long to wait for CUBE to answer on /api/v1/ before failing the play.
+cube_health_retries: 60
+cube_health_delay: 5      # seconds; 60*5 = up to 5 min (upstream: 30-60s typical)
+
+# ---------------------------------------------------------------------------
+# oxidicom -- the C-STORE SCP receiver that ingests DICOM into CUBE.
+# A pushing PACS must target AET `ChRIS` on TCP 11111.
+# OXIDICOM_SCP_AET=ChRIS, OXIDICOM_LISTENER_PORT=11111 (miniChRIS compose).
+# ---------------------------------------------------------------------------
+oxidicom_aet: "ChRIS"
+oxidicom_host: "localhost"        # host-published port
+oxidicom_dicom_port: 11111
+
+# ---------------------------------------------------------------------------
+# Test Orthanc -- SEPARATE from the bundled miniChRIS orthanc.
+#
+# We run our OWN orthancteam/orthanc container as the sample-data source so the
+# spike controls the DICOMweb + REST plugin config and the ports. It is bound to
+# NON-default host ports to avoid colliding with the bundled orthanc
+# (4242/8042) that the `pacs` profile starts. This container C-STORE-pushes
+# studies to oxidicom (AET ChRIS, :11111).
+#   image:  https://hub.docker.com/r/orthancteam/orthanc
+#   plugins: DicomWeb + REST are bundled in the orthancteam image and toggled
+#            on via env vars / the JSON config (ORTHANC__... convention).
+# ---------------------------------------------------------------------------
+test_orthanc_enabled: true
+test_orthanc_image: "docker.io/orthancteam/orthanc:24.10.3"
+test_orthanc_container_name: "dicomweb-spike-orthanc"
+test_orthanc_http_port: 8142          # host -> 8042 in container (REST/DICOMweb/UI)
+test_orthanc_dicom_port: 4342         # host -> 4242 in container (DIMSE)
+test_orthanc_aet: "SPIKEORTHANC"
+test_orthanc_user: "orthanc"
+test_orthanc_password: "orthanc"
+test_orthanc_base_url: "http://localhost:{{ test_orthanc_http_port }}"
+# Network the test Orthanc joins so it can reach the `oxidicom` service by name.
+# minichris compose names its `local` network `minichris-local`; oxidicom is on
+# both `pacs` and `local`. We attach to `minichris-local` and address oxidicom
+# as host `oxidicom` on port 11111 (the in-container listener port).
+minichris_local_network: "minichris-local"
+oxidicom_internal_host: "oxidicom"
+oxidicom_internal_port: 11111
+
+# ---------------------------------------------------------------------------
+# Sample data. Configurable source so BCH can swap in their own dataset.
+#   mode: "download"  -> fetch a small public DICOM zip into the workdir
+#   mode: "local_dir" -> point at an existing directory of .dcm on the host
+#   mode: "none"      -> skip loading (assume Orthanc already populated)
+# ---------------------------------------------------------------------------
+sample_data_mode: "download"
+# A small, redistributable DICOM sample (pydicom test files mirror / public).
+# Override with any URL to a zip of .dcm files.
+sample_data_url: "https://github.com/datalad/example-dicom-structural/archive/refs/heads/master.zip"
+sample_data_local_dir: ""             # used when sample_data_mode == local_dir
+sample_data_workdir: "{{ deploy_workdir }}/sample-data"
+
+# After loading into the test Orthanc, push everything it holds to oxidicom.
+sample_data_push_to_cube: true
+
+# ---------------------------------------------------------------------------
+# L2 DICOMweb implementation overlay (the integration seam).
+#
+# The L2 QIDO/WADO/STOW code lives in this repo at implementation/dicomweb-l2/.
+# CUBE runs containerized, so the overlay is bind-mounted (or copied) into the
+# running `chris` container's site-packages app dir, then migrated + restarted.
+# This role is DOCUMENT-AND-SCRIPT: it makes the seam explicit and idempotent
+# but does NOT invent the L2 code (that is Phase B/C work).
+# ---------------------------------------------------------------------------
+# Dev overlay of the L2 code into the running CUBE. Off by default; set true to
+# copy + wire + migrate the dicomweb app into the live chris/worker containers.
+dicomweb_overlay_enabled: false
+dicomweb_l2_src: "{{ repo_root }}/implementation/dicomweb-l2"
+# Path INSIDE the cube container where the Django project lives. The
+# ghcr.io/fnndsc/cube:6.11.x image puts manage.py + config/ under
+# /opt/app-root/src (verified against the image), which is on PYTHONPATH.
+dicomweb_container_app_dir: "/opt/app-root/src"
+dicomweb_app_name: "dicomweb"
+# URL prefix the L2 endpoints mount under (per QIDO_PLAN.md): /dicom-web/pacs/<id>/...
+dicomweb_url_prefix: "/dicom-web"
+
+# ---------------------------------------------------------------------------
+# Verify / smoke-test toggles
+# ---------------------------------------------------------------------------
+# The PACS identifier used in DICOMweb URL paths is the CUBE PACS.identifier.
+# oxidicom names the PACS after the *calling* AET of the pushing SCU (NOT its own
+# SCP AET) -- the "PACS name == calling AET" rule. Our test Orthanc pushes with
+# its DicomAet = {{ test_orthanc_aet }}, so the ingested PACS is identified by
+# that. (oxidicom's own SCP AET "ChRIS" is the *called* AET, a different thing.)
+verify_pacs_identifier: "{{ test_orthanc_aet }}"
+# QIDO/WADO/STOW endpoints only exist once the L2 overlay is applied; the smoke
+# script reports them as SKIP (not FAIL) when the overlay is disabled.
+verify_expect_dicomweb: "{{ dicomweb_overlay_enabled }}"

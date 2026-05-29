@@ -1,0 +1,219 @@
+---
+# =============================================================================
+# dicomweb_app -- THE INTEGRATION SEAM.
+#
+# CUBE runs as the prebuilt container `ghcr.io/fnndsc/cube:6.11.0` (Django
+# project at /opt/app-root/src). Our L2 DICOMweb code (QIDO/WADO/STOW endpoints
+# + the PACSStudy model + migrations) is NOT in that image. To exercise it
+# against the running stack without rebuilding the image, we OVERLAY it:
+#
+#   1. copy implementation/dicomweb-l2/ -> <app_dir>/dicomweb in the `chris`
+#      AND `worker` containers (worker runs the Celery indexer).
+#   2. WIRE it in: append 'dicomweb' to INSTALLED_APPS and mount its urls,
+#      idempotently, via files/overlay_patch.py. The patcher runs as ROOT --
+#      the image's project files are not writable by the app user.
+#   3. run `manage.py migrate` (creates PACSStudy etc.).
+#   4. restart `chris` + `worker` so Django re-imports settings/urls/models.
+#
+# DEV overlay only -- production rebuilds the cube image with the app baked in.
+# Gated on `dicomweb_overlay_enabled` (default false). When off, this role is a
+# no-op (two debug lines) and the play CONTINUES to the verify role -- we use a
+# `when:` block, never `meta: end_play` (which would abort the whole play and
+# skip verify).
+# =============================================================================
+
+- name: Report integration seam status
+  ansible.builtin.debug:
+    msg: >-
+      dicomweb_overlay_enabled={{ dicomweb_overlay_enabled }}.
+      {{ 'Overlaying + wiring L2 code into the running CUBE + worker containers.'
+         if dicomweb_overlay_enabled | bool
+         else 'Overlay DISABLED -- skipping (set dicomweb_overlay_enabled=true to apply).' }}
+
+- name: Describe the seam (always shown, for the stakeholder walk-through)
+  ansible.builtin.debug:
+    msg:
+      - "INTEGRATION SEAM (roles/dicomweb_app):"
+      - "  source on host : {{ dicomweb_l2_src }}"
+      - "  target in image: {{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}/"
+      - "  services touched: {{ cube_service_name }} (API) + {{ cube_worker_service_name }} (Celery indexer)"
+      - "  steps: copy code -> wire INSTALLED_APPS + urls (as root) -> migrate -> restart"
+      - "  endpoints exposed: {{ dicomweb_url_prefix }}/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)"
+      - "  NOTE: dev overlay only. Production rebuilds the cube image."
+
+- name: Apply and wire the DICOMweb L2 overlay
+  when: dicomweb_overlay_enabled | bool
+  block:
+    - name: Assert the L2 source tree exists on the host
+      ansible.builtin.stat:
+        path: "{{ dicomweb_l2_src }}/urls.py"
+      register: l2_src_stat
+
+    - name: Fail clearly if L2 source is missing
+      ansible.builtin.fail:
+        msg: >-
+          dicomweb_overlay_enabled=true but {{ dicomweb_l2_src }}/urls.py is
+          missing. Place the L2 DICOMweb Django app there before enabling.
+      when: not l2_src_stat.stat.exists
+
+    - name: Resolve the running CUBE (chris) container id
+      ansible.builtin.command:
+        cmd: docker compose ps -q {{ cube_service_name }}
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      register: cube_cid
+      changed_when: false
+      failed_when: cube_cid.stdout | trim | length == 0
+
+    - name: Resolve the running worker container id
+      ansible.builtin.command:
+        cmd: docker compose ps -q {{ cube_worker_service_name }}
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      register: worker_cid
+      changed_when: false
+      failed_when: worker_cid.stdout | trim | length == 0
+
+    # `docker cp DIR/. CONTAINER:DEST` lands DIR's contents under DEST, so we
+    # copy the app to <app_dir>/<app_name> in both containers, plus the patcher.
+    - name: Copy L2 app + wiring patcher into the chris and worker containers
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      loop:
+        - docker cp {{ dicomweb_l2_src }}/. {{ cube_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}
+        - docker cp {{ dicomweb_l2_src }}/. {{ worker_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/{{ dicomweb_app_name }}
+        - docker cp {{ role_path }}/files/overlay_patch.py {{ cube_cid.stdout | trim }}:/tmp/overlay_patch.py
+        - docker cp {{ role_path }}/files/overlay_patch.py {{ worker_cid.stdout | trim }}:/tmp/overlay_patch.py
+      changed_when: true
+
+    # --- Phase A dependency: the L2 dicomweb migrations depend on the Phase A
+    # pacsfiles migration 0009 (six PACSSeries tag columns + indexes). The
+    # prebuilt cube:6.11.x image predates Phase A, so we overlay BOTH the Phase A
+    # migration file (so dicomweb.0002's dependency resolves) AND the matching
+    # model-field additions (so the ORM exposes them at runtime). Production
+    # bakes Phase A into the cube image; this is the dev-overlay equivalent.
+    - name: Copy the Phase A pacsfiles migration + model patcher into chris + worker
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      loop:
+        - docker cp {{ role_path }}/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py {{ cube_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py
+        - docker cp {{ role_path }}/files/phase_a/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py {{ worker_cid.stdout | trim }}:{{ dicomweb_container_app_dir }}/pacsfiles/migrations/0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more.py
+        - docker cp {{ role_path }}/files/phase_a_pacsfiles_patch.py {{ cube_cid.stdout | trim }}:/tmp/phase_a_pacsfiles_patch.py
+        - docker cp {{ role_path }}/files/phase_a_pacsfiles_patch.py {{ worker_cid.stdout | trim }}:/tmp/phase_a_pacsfiles_patch.py
+      changed_when: true
+
+    - name: Apply the Phase A pacsfiles model fields (chris + worker)
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T --user root {{ item }}
+          python /tmp/phase_a_pacsfiles_patch.py {{ dicomweb_container_app_dir }}
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      loop:
+        - "{{ cube_service_name }}"
+        - "{{ cube_worker_service_name }}"
+      register: phase_a_patch
+      # Idempotent (marker-fenced on BodyPartExamined); always notify so a code
+      # re-import picks up the new model fields.
+      changed_when: true
+      notify: restart cube services
+
+    # The prebuilt cube image predates Phase A's pydicom requirement, but the
+    # STOW handler (stow_views) and the indexer (tasks) import it -- without this
+    # the app fails to import. Production bakes pydicom into the image instead.
+    - name: Install the L2 app's extra Python deps (pydicom) into chris + worker
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T --user root {{ item }}
+          pip install 'pydicom>=3.0,<4.0'
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      loop:
+        - "{{ cube_service_name }}"
+        - "{{ cube_worker_service_name }}"
+      register: dicomweb_pydicom
+      # Looped task: bare result keys (stdout) are not exposed in changed_when
+      # under ansible-core 2.19+. pip is idempotent and drives no handler, so
+      # report not-changed rather than referencing a per-item stdout.
+      changed_when: false
+
+    # Run the patcher as root in BOTH containers: chris serves the urls, worker
+    # needs 'dicomweb' in INSTALLED_APPS to load the models for the indexer.
+    # Idempotent (marker-fenced) -> safe to re-run.
+    - name: Wire 'dicomweb' into INSTALLED_APPS + urls (chris and worker)
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T --user root {{ item }}
+          python /tmp/overlay_patch.py {{ dicomweb_container_app_dir }}
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      loop:
+        - "{{ cube_service_name }}"
+        - "{{ cube_worker_service_name }}"
+      register: dicomweb_wire
+      # Looped task: bare `stdout` is undefined in changed_when under
+      # ansible-core 2.19+. Always treat wiring as changed so the restart
+      # handler fires and Django re-imports the overlaid app — safe and
+      # idempotent (re-wiring is marker-fenced; an extra restart is harmless).
+      changed_when: true
+      notify: restart cube services
+
+    - name: Run Django migrations inside the CUBE container
+      # 'dicomweb' is now in INSTALLED_APPS, so its migrations (PACSStudy etc.) apply.
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T {{ cube_service_name }}
+          python manage.py migrate --noinput
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      register: dicomweb_migrate
+      changed_when: "'No migrations to apply' not in dicomweb_migrate.stdout"
+      notify: restart cube services
+
+    - name: Show migrate output
+      ansible.builtin.debug:
+        var: dicomweb_migrate.stdout_lines
+
+    - name: Flush handlers now (restart chris + worker so code is re-imported)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Re-wait for CUBE health after restart
+      ansible.builtin.uri:
+        url: "{{ cube_api_url }}"
+        method: GET
+        user: "{{ cube_user }}"
+        password: "{{ cube_password }}"
+        force_basic_auth: true
+        status_code: [200]
+      register: cube_health_post
+      retries: 30
+      delay: 5
+      until: cube_health_post.status == 200
+
+    # Data ingested by oxidicom BEFORE the overlay was applied never triggered
+    # the dicomweb post_save(PACSFile) auto-index signal (the app wasn't loaded
+    # yet), so PACSStudy/PACSInstance are empty for it. Backfill once now: the
+    # `reindex_pacs_instances` command dispatches the Phase A indexer per
+    # existing .dcm, creating PACSInstance + PACSStudy + series-tag rollups.
+    # `--sync` runs it in-process so QIDO has data immediately (no Celery wait).
+    # Future ingests are indexed in real time by the signal.
+    - name: Backfill the DICOMweb index for already-ingested PACS data
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T {{ cube_service_name }}
+          python manage.py reindex_pacs_instances --sync
+        chdir: "{{ minichris_dir }}"
+      environment:
+        COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+      register: dicomweb_backfill
+      changed_when: true
+
+    - name: Show backfill output
+      ansible.builtin.debug:
+        var: dicomweb_backfill.stdout_lines

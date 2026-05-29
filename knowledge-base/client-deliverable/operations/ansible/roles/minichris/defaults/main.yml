@@ -1,0 +1,13 @@
+---
+# All effective values come from group_vars/all.yml; these are role-local
+# fallbacks so the role is runnable in isolation.
+# miniChRIS-docker is vendored as a submodule at deploy/vendor/ (see group_vars).
+# These are role-local fallbacks; group_vars/all.yml provides the effective path.
+minichris_dir: "{{ playbook_dir }}/../vendor/miniChRIS-docker"
+minichris_profiles: ["pacs"]
+cube_api_url: "http://localhost:8000/api/v1/"
+cube_user: "chris"
+cube_password: "chris1234"
+cube_health_retries: 60
+cube_health_delay: 5
+cube_service_name: "chris"

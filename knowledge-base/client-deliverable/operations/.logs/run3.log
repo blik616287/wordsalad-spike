@@ -1,0 +1,115 @@
+
+PLAY [Deploy DICOMweb-on-CUBE spike (wraps FNNDSC/miniChRIS-docker)] ***********
+
+TASK [Gathering Facts] *********************************************************
+ok: [localhost]
+
+TASK [dicomweb_app : Report integration seam status] ***************************
+ok: [localhost] => 
+    msg: dicomweb_overlay_enabled=true. Overlaying + wiring L2 code into the running CUBE
+        + worker containers.
+
+TASK [dicomweb_app : Describe the seam (always shown, for the stakeholder walk-through)] ***
+ok: [localhost] => 
+    msg:
+    - 'INTEGRATION SEAM (roles/dicomweb_app):'
+    - '  source on host : /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2'
+    - '  target in image: /opt/app-root/src/dicomweb/'
+    - '  services touched: chris (API) + worker (Celery indexer)'
+    - '  steps: copy code -> wire INSTALLED_APPS + urls (as root) -> migrate -> restart'
+    - '  endpoints exposed: /dicom-web/pacs/<id>/studies|series|instances (QIDO/WADO/STOW)'
+    - '  NOTE: dev overlay only. Production rebuilds the cube image.'
+
+TASK [dicomweb_app : Assert the L2 source tree exists on the host] *************
+ok: [localhost]
+
+TASK [dicomweb_app : Fail clearly if L2 source is missing] *********************
+skipping: [localhost]
+
+TASK [dicomweb_app : Resolve the running CUBE (chris) container id] ************
+ok: [localhost]
+
+TASK [dicomweb_app : Resolve the running worker container id] ******************
+ok: [localhost]
+
+TASK [dicomweb_app : Copy L2 app + wiring patcher into the chris and worker containers] ***
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/../../implementation/dicomweb-l2/. c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/opt/app-root/src/dicomweb)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py f334ba0657ffb0d28eb036d1da30131b841b1820f4d67420c3671fd9e665dc4f:/tmp/overlay_patch.py)
+changed: [localhost] => (item=docker cp /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/files/overlay_patch.py c1a1b42c57258e2c60a836ee9a42a2e6ef729aff526fcd2dab1bd4eef3074159:/tmp/overlay_patch.py)
+
+TASK [dicomweb_app : Install the L2 app's extra Python deps (pydicom) into chris + worker] ***
+ok: [localhost] => (item=chris)
+ok: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Wire 'dicomweb' into INSTALLED_APPS + urls (chris and worker)] ***
+changed: [localhost] => (item=chris)
+changed: [localhost] => (item=worker)
+
+TASK [dicomweb_app : Run Django migrations inside the CUBE container] **********
+[ERROR]: Task failed: Module failed: non-zero return code
+Origin: /home/blik/Desktop/wordsalad-spike/knowledge-base/client-deliverable/operations/ansible/roles/dicomweb_app/tasks/main.yml:133:7
+
+131       notify: restart cube services
+132
+133     - name: Run Django migrations inside the CUBE container
+          ^ column 7
+
+fatal: [localhost]: FAILED! => 
+    changed: true
+    cmd:
+    - docker
+    - compose
+    - exec
+    - -T
+    - chris
+    - python
+    - manage.py
+    - migrate
+    - --noinput
+    delta: '0:00:00.726659'
+    end: '2026-05-29 14:48:32.574395'
+    msg: non-zero return code
+    rc: 1
+    start: '2026-05-29 14:48:31.847736'
+    stderr: |-
+        Traceback (most recent call last):
+          File "/opt/app-root/src/manage.py", line 23, in <module>
+            main()
+          File "/opt/app-root/src/manage.py", line 19, in main
+            execute_from_command_line(sys.argv)
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/__init__.py", line 442, in execute_from_command_line
+            utility.execute()
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/__init__.py", line 436, in execute
+            self.fetch_command(subcommand).run_from_argv(self.argv)
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/base.py", line 416, in run_from_argv
+            self.execute(*args, **cmd_options)
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/base.py", line 460, in execute
+            output = self.handle(*args, **options)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/base.py", line 107, in wrapper
+            res = handle_func(*args, **kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          File "/opt/app-root/lib64/python3.12/site-packages/django/core/management/commands/migrate.py", line 114, in handle
+            executor = MigrationExecutor(connection, self.migration_progress_callback)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          File "/opt/app-root/lib64/python3.12/site-packages/django/db/migrations/executor.py", line 18, in __init__
+            self.loader = MigrationLoader(self.connection)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          File "/opt/app-root/lib64/python3.12/site-packages/django/db/migrations/loader.py", line 58, in __init__
+            self.build_graph()
+          File "/opt/app-root/lib64/python3.12/site-packages/django/db/migrations/loader.py", line 276, in build_graph
+            self.graph.validate_consistency()
+          File "/opt/app-root/lib64/python3.12/site-packages/django/db/migrations/graph.py", line 198, in validate_consistency
+            [n.raise_error() for n in self.node_map.values() if isinstance(n, DummyNode)]
+             ^^^^^^^^^^^^^^^
+          File "/opt/app-root/lib64/python3.12/site-packages/django/db/migrations/graph.py", line 60, in raise_error
+            raise NodeNotFoundError(self.error_message, self.key, origin=self.origin)
+        django.db.migrations.exceptions.NodeNotFoundError: Migration dicomweb.0002_pacsstudy dependencies reference nonexistent parent node ('pacsfiles', '0009_pacsseries_bodypartexamined_pacsseries_manufacturer_and_more')
+    stderr_lines: <omitted>
+    stdout: ''
+    stdout_lines: <omitted>
+
+PLAY RECAP *********************************************************************
+localhost                  : ok=9    changed=2    unreachable=0    failed=1    skipped=1    rescued=0    ignored=0   
+

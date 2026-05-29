@@ -1,0 +1,124 @@
+---
+# Bring up the vendored FNNDSC/miniChRIS-docker stack.
+#
+# miniChRIS-docker is vendored as a git SUBMODULE at deploy/vendor/miniChRIS-docker
+# (pinned to a known-good commit) rather than cloned at runtime, so the wrapped
+# stack version is reproducible, version-controlled, and available offline.
+# Initialize it once with:  git submodule update --init deploy/vendor/miniChRIS-docker
+#
+# We deliberately drive `docker compose` via the shell module rather than
+# community.docker.docker_compose_v2 for the *up* step, because the canonical
+# bootstrap is the repo's own `minichris.sh` (it sets HOSTNAME in .env and runs
+# the one-shot `chrisomatic` registrar afterwards). Re-implementing that in the
+# Ansible module would diverge from upstream. We DO use the module elsewhere.
+# minichris.sh writes only files its own .gitignore covers, so running in place
+# leaves the submodule working tree clean.
+#   minichris.sh / docker-compose.yml: https://github.com/FNNDSC/miniChRIS-docker
+
+- name: Ensure the deploy workdir exists
+  ansible.builtin.file:
+    path: "{{ deploy_workdir }}"
+    state: directory
+    mode: "0755"
+
+- name: Assert the vendored miniChRIS-docker submodule is checked out
+  ansible.builtin.stat:
+    path: "{{ minichris_dir }}/docker-compose.yml"
+  register: minichris_compose_file
+
+- name: Fail with init instructions if the submodule is missing
+  ansible.builtin.fail:
+    msg: >-
+      miniChRIS-docker submodule not found at {{ minichris_dir }}.
+      Run once from the repo root:
+      git submodule update --init deploy/vendor/miniChRIS-docker
+  when: not minichris_compose_file.stat.exists
+
+- name: Report vendored stack
+  ansible.builtin.debug:
+    msg: "Using vendored (pinned) miniChRIS-docker submodule at {{ minichris_dir }}"
+
+# --- Bring the stack up -----------------------------------------------------
+# minichris.sh brings up the DEFAULT profile then runs chrisomatic. The PACS
+# pipeline (orthanc/pfdcm/oxidicom/nats) needs an explicit `--profile pacs up`.
+# We run the default bootstrap first, then add the pacs profile, mirroring the
+# documented two-step in the upstream README.
+
+- name: Bring up the default-profile services via minichris.sh (also runs chrisomatic)
+  ansible.builtin.command:
+    cmd: ./minichris.sh
+    chdir: "{{ minichris_dir }}"
+  environment:
+    # minichris.sh keys CI behaviour off $CI; leave it unset for a normal run.
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: minichris_up
+  changed_when: true
+  # minichris.sh is idempotent enough to re-run (compose up -d is a no-op for
+  # already-running services); chrisomatic re-registration is also idempotent.
+
+- name: Bring up the PACS-pipeline profile (orthanc + pfdcm + oxidicom + nats)
+  ansible.builtin.command:
+    cmd: >-
+      docker compose
+      {% for p in minichris_profiles %}--profile {{ p }} {% endfor %}
+      up -d
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: minichris_pacs_up
+  changed_when: true
+
+- name: List running compose services
+  ansible.builtin.command:
+    cmd: docker compose
+      {% for p in minichris_profiles %}--profile {{ p }} {% endfor %}ps
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: minichris_ps
+  changed_when: false
+
+- name: Show compose ps
+  ansible.builtin.debug:
+    var: minichris_ps.stdout_lines
+
+# --- Wait for CUBE health ---------------------------------------------------
+- name: Wait for CUBE API to answer on /api/v1/ (auth required)
+  ansible.builtin.uri:
+    url: "{{ cube_api_url }}"
+    method: GET
+    user: "{{ cube_user }}"
+    password: "{{ cube_password }}"
+    force_basic_auth: true
+    status_code: [200]
+    return_content: false
+  register: cube_health
+  retries: "{{ cube_health_retries }}"
+  delay: "{{ cube_health_delay }}"
+  until: cube_health.status == 200
+  # First boot pulls images + migrates; allow the full retry budget.
+
+- name: CUBE is healthy
+  ansible.builtin.debug:
+    msg: "CUBE responded 200 at {{ cube_api_url }}"
+
+# Confirm oxidicom is ready WITHOUT opening a raw socket to its DIMSE port.
+# CRITICAL: do NOT use wait_for/raw TCP against :11111. oxidicom 3.0.0 treats a
+# bare TCP connect (one that never negotiates a DICOM A-ASSOCIATE) as a failed
+# association and PANICS its state-loop thread:
+#     thread 'main' panicked at src/association_series_state_loop.rs:112:
+#     Unknown association ULID
+# The container stays "Up" but the listener is dead, so EVERY subsequent C-STORE
+# silently fails (0 instances ingested). Verified empirically 2026-05-28.
+# We therefore gate on the container being in the `running` state instead.
+- name: Wait for the oxidicom service container to be running
+  ansible.builtin.command:
+    cmd: docker compose --profile pacs ps --status running -q oxidicom
+    chdir: "{{ minichris_dir }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ minichris_compose_project }}"
+  register: oxidicom_running
+  changed_when: false
+  retries: 30
+  delay: 2
+  until: oxidicom_running.stdout | trim | length > 0

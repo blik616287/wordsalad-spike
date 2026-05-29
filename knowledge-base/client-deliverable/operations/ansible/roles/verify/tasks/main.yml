@@ -1,0 +1,67 @@
+---
+# Smoke-test the deployment. Delegates to scripts/smoke.sh so the same checks
+# can be run by hand outside Ansible. Passes config via env so there is one
+# source of truth (group_vars).
+
+- name: Locate the smoke script
+  ansible.builtin.set_fact:
+    verify_smoke_script: "{{ playbook_dir }}/scripts/smoke.sh"
+
+- name: Ensure smoke script is executable
+  ansible.builtin.file:
+    path: "{{ verify_smoke_script }}"
+    mode: "0755"
+
+- name: Run smoke tests
+  ansible.builtin.command:
+    cmd: "{{ verify_smoke_script }}"
+  environment:
+    CUBE_BASE_URL: "{{ cube_base_url }}"
+    CUBE_API_URL: "{{ cube_api_url }}"
+    CUBE_USER: "{{ cube_user }}"
+    CUBE_PASSWORD: "{{ cube_password }}"
+    PACS_ID: "{{ verify_pacs_identifier }}"
+    DICOMWEB_PREFIX: "{{ dicomweb_url_prefix }}"
+    EXPECT_DICOMWEB: "{{ verify_expect_dicomweb | string | lower }}"
+    ORTHANC_BASE_URL: "{{ test_orthanc_base_url }}"
+  register: verify_run
+  changed_when: false
+  # smoke.sh exits non-zero only on a hard FAIL (not on SKIP).
+  failed_when: verify_run.rc != 0
+
+- name: Smoke-test output
+  ansible.builtin.debug:
+    var: verify_run.stdout_lines
+
+# Deeper API-level validation (QIDO/WADO/STOW + Basic & Token auth + negatives),
+# run automatically after the smoke pass. Only meaningful once the L2 overlay is
+# applied; it is also runnable independently: operations/tooling/api_tests.sh
+- name: Locate the API test suite
+  ansible.builtin.set_fact:
+    verify_api_script: "{{ playbook_dir }}/../tooling/api_tests.sh"
+
+- name: Ensure API test suite is executable
+  ansible.builtin.file:
+    path: "{{ verify_api_script }}"
+    mode: "0755"
+  when: dicomweb_overlay_enabled | bool
+
+- name: Run API test suite (QIDO/WADO/STOW + auth)
+  ansible.builtin.command:
+    cmd: "{{ verify_api_script }}"
+  environment:
+    CUBE_BASE_URL: "{{ cube_base_url }}"
+    CUBE_USER: "{{ cube_user }}"
+    CUBE_PASSWORD: "{{ cube_password }}"
+    PACS_ID: "{{ verify_pacs_identifier }}"
+    ORTHANC_BASE_URL: "{{ test_orthanc_base_url }}"
+  register: verify_api
+  changed_when: false
+  # api_tests.sh exits non-zero if any API assertion fails.
+  failed_when: verify_api.rc != 0
+  when: dicomweb_overlay_enabled | bool
+
+- name: API test output
+  ansible.builtin.debug:
+    var: verify_api.stdout_lines
+  when: dicomweb_overlay_enabled | bool

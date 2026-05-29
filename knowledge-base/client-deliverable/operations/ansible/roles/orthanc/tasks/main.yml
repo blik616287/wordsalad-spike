@@ -1,0 +1,97 @@
+---
+# Run a SEPARATE orthancteam/orthanc as the test PACS / sample-data source.
+#
+# Why separate from the bundled miniChRIS orthanc?
+#  - We control the DicomWeb + REST plugin config and the AET here.
+#  - We bind to non-default host ports (8142/4342) so we never collide with the
+#    bundled orthanc (8042/4242) that the `pacs` profile starts.
+#  - It is registered with a "ChRIS" downstream modality pointing at oxidicom,
+#    so it can C-STORE-push studies into CUBE.
+#
+# orthancteam image (DicomWeb + REST plugins bundled):
+#   https://hub.docker.com/r/orthancteam/orthanc
+#   https://orthanc.uclouvain.be/book/plugins/dicomweb.html
+
+- name: Skip test Orthanc when disabled
+  ansible.builtin.meta: end_play
+  when: not (test_orthanc_enabled | bool)
+
+- name: Ensure orthanc config dir exists
+  ansible.builtin.file:
+    path: "{{ orthanc_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render Orthanc config (DicomWeb + REST + ChRIS modality)
+  ansible.builtin.template:
+    src: orthanc.json.j2
+    dest: "{{ orthanc_config_dir }}/orthanc.json"
+    mode: "0644"
+  register: orthanc_config
+
+- name: Confirm the miniChRIS local network exists (so we can reach oxidicom by name)
+  community.docker.docker_network_info:
+    name: "{{ minichris_local_network }}"
+  register: orthanc_net
+  failed_when: not orthanc_net.exists
+
+- name: Run the test Orthanc container
+  community.docker.docker_container:
+    name: "{{ test_orthanc_container_name }}"
+    image: "{{ test_orthanc_image }}"
+    state: started
+    restart_policy: unless-stopped
+    recreate: "{{ orthanc_config is changed }}"
+    published_ports:
+      - "{{ test_orthanc_http_port }}:8042"   # REST + DICOMweb + Explorer
+      - "{{ test_orthanc_dicom_port }}:4242"  # DIMSE
+    volumes:
+      - "{{ orthanc_config_dir }}/orthanc.json:/etc/orthanc/orthanc.json:ro"
+    # Join the miniChRIS local network so `oxidicom` resolves for C-STORE push.
+    networks:
+      - name: "{{ minichris_local_network }}"
+    # Keep it on the default bridge too so host port publishing works cleanly.
+    networks_cli_compatible: true
+    comparisons:
+      networks: allow_more_present
+  register: orthanc_container
+
+- name: Wait for the test Orthanc REST API
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/system"
+    method: GET
+    status_code: [200]
+  register: orthanc_system
+  retries: 30
+  delay: 2
+  until: orthanc_system.status == 200
+
+- name: Show Orthanc system info
+  ansible.builtin.debug:
+    msg: >-
+      Test Orthanc up: {{ orthanc_system.json.Name | default('?') }}
+      v{{ orthanc_system.json.Version | default('?') }}
+      at {{ test_orthanc_base_url }} (DIMSE {{ test_orthanc_dicom_port }})
+
+- name: Verify the DicomWeb plugin is loaded
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/plugins/dicom-web"
+    method: GET
+    status_code: [200]
+  register: orthanc_dicomweb_plugin
+  failed_when: orthanc_dicomweb_plugin.status != 200
+
+- name: Confirm the ChRIS (oxidicom) modality is registered and reachable (C-ECHO)
+  ansible.builtin.uri:
+    url: "{{ test_orthanc_base_url }}/modalities/ChRIS/echo"
+    method: POST
+    body: ""
+    status_code: [200, 204]
+  register: orthanc_echo
+  # A non-200 here is informational (oxidicom may not answer C-ECHO); do not
+  # fail the play -- the real test is the C-STORE push in sample_data.
+  failed_when: false
+
+- name: Report C-ECHO to oxidicom
+  ansible.builtin.debug:
+    msg: "C-ECHO oxidicom -> status {{ orthanc_echo.status }} (200/204 = reachable)"
