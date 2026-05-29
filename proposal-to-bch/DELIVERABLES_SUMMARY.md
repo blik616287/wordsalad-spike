@@ -1,6 +1,6 @@
 # ISC Findings & Deliverables — DICOMweb for ChRIS (CUBE)
 
-**Insight Softmax Consulting → Boston Children's Hospital / ATLAS** · One-page summary
+**Insight Softmax Consulting → Boston Children's Hospital / ATLAS** · Deliverables, findings & rationale
 
 ## Scope of the work
 
@@ -9,7 +9,36 @@
 > (QIDO-RS / WADO-RS / STOW-RS), writes up what's missing and how to do it, and brings back a
 > proposal to discuss and break into tickets.
 
-Below is what we found, organized exactly as that ask: **what CUBE has today → what's missing → how to
+## Why this matters — DICOM, DICOMweb, and where CUBE stands
+
+**DICOM** is the universal medical-imaging standard (Patient → Study → Series → Instance; every scanner,
+PACS, and viewer speaks it). But it predates the web (ACR-NEMA **1985**), and its classic network layer
+(**DIMSE**) is a port- and AE-title-based protocol, not HTTP. Most tellingly, **retrieval uses C-MOVE,
+where the *server pushes* the image to a pre-registered endpoint rather than the client simply pulling
+it** — brittle across networks/firewalls, and invisible to ordinary web clients.
+
+**DICOMweb** is the DICOM standard's own **RESTful HTTP face** — **QIDO-RS** (query), **WADO-RS**
+(retrieve), **STOW-RS** (store), all over HTTP with `application/dicom+json`. It keeps the data model but
+replaces the awkward parts: a **plain HTTP `GET` pull** (firewall-friendly, no AE-title negotiation),
+JSON, and **native support in zero-footprint viewers like OHIF**.
+
+**Where CUBE stands:** CUBE exposes its **own `collection+json` REST API** and ingests DICOM via
+oxidicom — but it **does not speak DICOMweb.** So a clinician's DICOMweb viewer (OHIF) or a hospital
+PACS **cannot query, retrieve, or store against CUBE today**, and retrieval still rides the legacy
+C-MOVE/pfdcm path.
+
+**Why compliance is the unlock — four reasons:**
+1. **Research → clinic.** Research outputs only become useful to clinicians through the tools they
+   already use, which speak DICOMweb. Without it, ChRIS is an island requiring custom per-site glue.
+2. **Contractual grant deliverable.** ATLAS **§2.6.1.6** requires WADO-RS + STOW-RS + QIDO-RS
+   **operational by Month 12** (regression suite Month 15).
+3. **Federation.** A federated research platform exchanges imaging **across sites over standard
+   DICOMweb**, not a bespoke API.
+4. **Modernization.** It replaces the brittle C-MOVE push with an HTTP pull any standard client can drive.
+
+*(Full narrative: `knowledge-base/16-why-and-how-dicomweb-compliance.md`.)*
+
+Below is what we found, organized exactly as the ask: **what CUBE has today → what's missing → how to
 do it (and proof it works).**
 
 ## 1. What CUBE has today — the foundation is solid

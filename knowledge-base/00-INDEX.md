@@ -58,6 +58,12 @@
 |---|---|---|---|
 | [15](15-engagement-and-scoping.md) | Engagement & Scoping: the non-code context | Who's in the room, what BCH asked for (May 19), what's committed/conditional/open, funding state, scope-creep redirects. ⚠️ mixes 🟢 BCH-facing and 🔒 internal-only. | What did we commit to? Who are Rudolph/Joshua/Alex/Tommy/Adam? Is STOW in scope? Is the grant approved? How to deflect scope creep? |
 
+### Why & how (16) — the thesis, narrative
+
+| File | Title | One-line description | Questions it answers |
+|---|---|---|---|
+| [16](16-why-and-how-dicomweb-compliance.md) | Why & How CUBE's API Must Become DICOMweb-Compliant | The "why modernize" narrative tying DICOM + DICOMweb + ChRIS together: why DICOM is hard to integrate (C-MOVE), what DICOMweb fixes (HTTP pull), CUBE's gap (collection+json ≠ DICOMweb), why compliance is needed (clinic interop, grant, federation), and how (additive, proven). | Why does CUBE need DICOMweb at all? Why is DICOM "legacy"? What does DICOMweb actually change? Why can't OHIF/PACS talk to CUBE today? Is this a rewrite? |
+
 > **Companion top-level docs:** [`../MEETING_BRIEF.md`](../MEETING_BRIEF.md) (the spoken cheat-sheet,
 > Q&A), [`00-glossary.md`](00-glossary.md) (one-line definitions of every term below).
 
